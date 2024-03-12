@@ -1,0 +1,31 @@
+
+target-version = "py310"
+line-length = 130
+indent-width = 4
+
+
+[lint]
+select = ["E", "F", "I", "W"]
+extend-select = [
+    "E501", "UP", "D", "B"
+]
+ignore = ["D102", "D107", "D105", "B028"]
+
+[lint.per-file-ignores]
+"__init__.py" = ["F401", "E402", "F403"]
+"**/{tests,docs,tools}/*" = ["E402"]
+
+[lint.pydocstyle]
+convention = "google"
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = true
+line-ending = "auto"
+docstring-code-format = false
+docstring-code-line-length = "dynamic"
+
+[lint.isort]
+force-sort-within-sections = true
+known-first-party = ["cadre", "tcast"]
