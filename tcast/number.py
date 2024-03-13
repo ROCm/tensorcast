@@ -77,7 +77,7 @@ class NumberSpec:
             self.torch_dtype = code
             code = str(code)
         code = code.lower().removeprefix("torch.")
-        if ttype := getattr(torch, code):
+        if ttype := getattr(torch, code, False):
             if self.torch_dtype is None and isinstance(ttype, torch.dtype):
                 self.torch_dtype = ttype
         self.name = code = code.removeprefix("float8_")
