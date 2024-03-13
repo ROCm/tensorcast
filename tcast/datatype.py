@@ -19,7 +19,7 @@ class DataType:
     is_channel: bool = False
     is_tile: bool = False
 
-    def __init__(self, nspec: str | NumberSpec, sspec: str | NumberSpec = None, name: str = None):
+    def __init__(self, nspec: str | NumberSpec, sspec: str | ScaleSpec = None, name: str = None):
         self.nspec = nspec if isinstance(nspec, NumberSpec) else NumberSpec(nspec)
         self._name = name
         self.sspec = sspec if isinstance(sspec, ScaleSpec) else ScaleSpec(sspec) if sspec else None

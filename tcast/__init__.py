@@ -23,24 +23,29 @@ def initialize(roundmode: RoundMode = None, scalemode: ScaleMode = None):
         Cast.scalemode = scalemode
 
 
-def make_number(code: str) -> NumberSpec:
+def number(code: str) -> NumberSpec:
     """Create a number spec from a string code."""
     return NumberSpec(code)
 
 
-def make_scale(code: str) -> ScaleSpec:
+def scale(code: str) -> ScaleSpec:
     """Create a scale spec from a string code."""
     return ScaleSpec(code)
 
 
-def make_datatype(ncode: str, scode: str = None, name: str = None) -> DataType:
+def datatype(nspec: str | NumberSpec, sspec: str | ScaleSpec = None, name: str = None) -> DataType:
     """Create an implicitly scaled or unscaled datatype from a number spec code."""
-    return DataType(ncode, scode, name)
+    return DataType(nspec, sspec, name)
 
 
 def cast(x: torch.Tensor, dtype: DataType, roundmode: RoundMode = None, scalemode: ScaleMode = None) -> torch.Tensor:
     """Virtual cast a tensor to a scaled or unscaled datatype."""
     return Cast.cast(x, dtype, roundmode, scalemode)
+
+
+def sparse(x: torch.Tensor, stile: int, dense: int, dim: int = -1) -> torch.Tensor:
+    """Virtual cast a tensor to a scaled or unscaled datatype."""
+    return Cast.sparse(x, stile, dense, -1)
 
 
 #####

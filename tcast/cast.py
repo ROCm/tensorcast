@@ -10,14 +10,14 @@ from .number import NumberSpec
 from .utils import check_literal
 
 RoundMode = Literal["even", "nearest", "zero", "stochastic"]
-ScaleMode = Literal["standard", "auto"]
+ScaleMode = Literal["max", "auto"]
 
 
 class Cast:
     """Static class with implementations in PyTorch."""
 
     roundmode: ClassVar[RoundMode] = "even"  # the current rounding mode
-    scalemode: ClassVar[ScaleMode] = "standard"  # the current scale selection mode
+    scalemode: ClassVar[ScaleMode] = "max"  # the current scale selection mode
 
     @classmethod
     def _round(cls, x: torch.Tensor) -> torch.Tensor:
@@ -43,10 +43,10 @@ class Cast:
         return x
 
     @classmethod
-    def vcast(cls, x: torch.Tensor, dtype: DataType) -> torch.Tensor:
+    def _vcast(cls, x: torch.Tensor, dtype: DataType) -> torch.Tensor:
         """Virtual cast, atomic."""
         xtype = x.dtype
-        x = x.clone() #.float()
+        x = x.clone()
         if dtype.is_unscaled:
             return cls._cast_unscaled(x, dtype.nspec).to(xtype)
         assert dtype and dtype.sspec
@@ -77,13 +77,30 @@ class Cast:
             if dtype.nspec.ebits > 1 and cls.scalemode == "auto":
                 maxexp[(x * (-maxexp).exp2()).abs().amax(dim=dim) > dtype.nspec.midmax] += 1
             nscale = (-maxexp).exp2()
-            x *= nscale                                           # scale x into range of the target dtype
+            x *= nscale                                                     # scale x into range of the target dtype
             valexp = (cls._safe_frexp(x) - 1).clamp_min(dtype.nspec.emin)   # get the independent exponents, clipped to emin
             rscale = (dtype.nspec.mbits - valexp).exp2()
             x = cls._round(x * rscale).div(rscale).clamp(-dtype.nspec.maxfloat, dtype.nspec.maxfloat)
             x /= nscale
         x = dtype.sspec.revert_tensor(x)
         return x.to(xtype)
+
+    @classmethod
+    def sparse(cls, tensor: torch.Tensor, stile: int, dense: int, dim: int = -1) -> torch.Tensor:
+        """Simple structured sparsity, M of N, where M is dense values retained out of N."""
+        if tensor.shape[-1] % stile != 0:
+            raise NotImplementedError(
+                f"Last tensor dim ({tensor.shape[-1]}) must be evenly divisible by sparse tile size ({stile})"
+            )
+        assert dense > 0 and dense < stile
+        tshape = tensor.shape
+        t = tensor.clone().transpose(dim, -1).reshape(-1, stile).abs()
+        idx = t.argsort(dim=-1, descending=True)
+        premask = torch.full(t.shape, True, dtype=torch.bool, device=tensor.device)
+        mask = torch.empty_like(premask)
+        premask[...,:dense] = False
+        mask.scatter_(-1, idx, premask)
+        return t.masked_fill_(mask, 0.0).reshape(tshape).transpose(dim, -1)
 
     @classmethod
     def cast(cls, x: torch.Tensor, dtype: DataType, roundmode: RoundMode = None, scalemode: ScaleMode = None) -> torch.Tensor:
@@ -95,7 +112,7 @@ class Cast:
         saveround, savescale = cls.roundmode, cls.scalemode
         cls.roundmode = roundmode if roundmode else saveround
         cls.scalemode = scalemode if scalemode else savescale
-        x = cls.vcast(x, dtype)
+        x = cls._vcast(x, dtype)
         cls.roundmode = saveround
         cls.scalemode = savescale
         return x

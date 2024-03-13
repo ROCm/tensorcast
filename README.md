@@ -78,13 +78,13 @@ During construction, the number spec calculates commonly used information such a
 #### NumberSpec Implementation Notes
 
 Signed integer values with a power of two scale are typically implemented as fixed point, with a sign, a single integer bit, and
-a fractional component that is *bits* - 2 wide.  This can be (and is) represented as a normally biased float with a single exponent bit
-and *bits* - 2 mantissa bits.  Arithmetically the exponent bit acts as the integer bit. This facilitates casting, while leaving the
-actual storage format (floating point, 2's complement, or sign magnitude) as a platform-specific implementation detail. As a result,
-integer number specs have both `torch.finfo` and `torch.iinfo` values.
+a fractional component that is *bits* - 2 wide.  This can be (and is) represented as a normally biased float with a single exponent
+bit and *bits* - 2 mantissa bits.  Arithmetically the exponent bit acts as the integer bit. This facilitates casting, while leaving
+the actual storage format (floating point, 2's complement, or sign magnitude) as a platform-specific implementation detail. As a
+result, integer number specs have both `torch.finfo` and `torch.iinfo` values.
 
-If the number specification is an exact match to a torch.dtype (regardless of whether a torch dtype or name was used to create the spec),
-that dtype will be accessible through the NumberSpec's torch_dtype attribute.
+If the number specification is an exact match to a torch.dtype (regardless of whether a torch dtype or name was used to create the
+spec), that dtype will be accessible through the NumberSpec's torch_dtype attribute.
 
 ### ScaleSpec
 
@@ -95,7 +95,8 @@ from Microsoft, who developed the OCP MX formats, and did earlier work with
 [MSFP](https://proceedings.neurips.cc/paper/2020/file/747e32ab0fea7fbd2ad9ec03daa3f840-Paper.pdf), a block floating point format
 that is implemented in the next AIE.
 
-Microsoft also introduced *subtile* in [With Shared Microexponents, A Little Shifting Goes a Long Way](https://arxiv.org/abs/2302.08007),
+Microsoft also introduced *subtile* in
+[With Shared Microexponents, A Little Shifting Goes a Long Way](https://arxiv.org/abs/2302.08007),
 where the initial version of MX (without individual exponents) shared one or more scale offset bits to preserve precision.  These
 datatypes include MX9, MX6, and MX4 (also known as BFP Prime), which are implemented in an upcoming AIE device.  Those MX types are
 planned for version 2 of TensorCast.
@@ -110,7 +111,8 @@ is some form of float, and the zero point can be float or int (the latter guaran
 scales, with a slight loss of SQNR).  Integer and exponent number specs are not supported for unsigned int scales.
 
 Signed integer is generally symmetric around zero, dropping the highest magnitude negative value to avoid bias in the quantization.
-The scale numberspec can be either a float or an exponent.  Allowing an integer or unsigned bias adjustment in addition to exponent types
+The scale numberspec can be either a float or an exponent.  Allowing an integer or unsigned bias adjustment in addition to exponent
+types
 is being considered for V2.  Support for unbalanced (asymmetric) scaling is not planned.
 
 Floating point data has an inherent individual scale, but the tensor/channel/tile scale is restricted to exponent numspecs in V1.
@@ -122,16 +124,16 @@ number spec(s) for the scale with no tile specification.  A channel scale is a t
 in the dimension of the scale, and is specified with a tile size of zero.  A tile scale has a tile size and the dimension of the
 tile.  The dimension defaults to -1 (the last dimension of the tensor).
 
-A limitation in V1 as of now is that padding of tensors is not implemented, so the tensor size in the specified dimension must be a multiple
-of the tile size.
+A limitation in V1 as of now is that padding of tensors is not implemented, so the tensor size in the specified dimension must be a
+multiple of the tile size.
 
 #### ScaleSpec String Encoding
 
 The components of a scale being scale number spec, optional zero point number spec, and optional tile spec, the string encoding
 of a scale specification is the concatenation of the string encodings of the constituents, joined by underscores.
 
-The number specs are defined above.  The tile scale is of the form "tXdY", where X is the size of the tile, a power of two between 2 and
-1024 (or 0 for channel scaling) and Y is the dimension of the tile. If the dimension is -1, "dY" is omitted.  However, for channel
+The number specs are defined above.  The tile scale is of the form "tXdY", where X is the size of the tile, a power of two between 2
+and 1024 (or 0 for channel scaling) and Y is the dimension of the tile. If the dimension is -1, "dY" is omitted.  However, for channel
 scaling the tile spec must be included, even if it is only "t0".
 
 #### ScaleSpec Implementation Notes
@@ -169,11 +171,95 @@ constructor.
 
 ### Cast
 
-TODO(ericd)
+Cast is a static class that contains the PyTorch code to perform rounding, scaling, and quantization.  When the torch extension is
+implemented, the cast class will be able to route the cast call to the appropriate implementation (e.g. python, cpu C++, gpu C++)
+based on a CastMode, tensor characteristics, and available kernels.
+
+Public methods generally correspond to the API methods in the tcast namespace.  Private methods include \_vcast, \_round, \_cast_unscaled,
+and \_safe_frexp.
 
 ### Package Level API
 
-TODO(ericd)
+The classes in tcast need not be used directly.  An API wraps essential functionality.
+
+#### initialize
+
+The initialize function currently just sets default roundmode and/or scalemode so that overrides in the cast
+calls are not necessary.  This is optional.  Soon, there will also be a default for ComputeMode, which will
+select between PyTorch ops, C++/CPU extension, or C++/HIP-CUDA extension.
+
+```python
+import tcast
+tcast.initialize(roundmode="even", scalemode="max")
+```
+
+#### number
+
+This function, given a valid code string, returns a NumberSpec, which can then be used to create a DataType.
+
+```python
+import tcast
+nspec = tcast.make_number("e5m6") # fp12, an abbreviated version of fp16
+```
+
+#### scale
+
+This function, given a valid code string, returns a ScaleSpec, which can then be used to create a DataType.
+
+```python
+import tcast
+sspec = tcast.make_scale("e8m0_t32") # power of 2 scaling on the last dimension with tile size 32
+```
+
+#### datatype
+
+This function, given a number spec (NumberSpec or valid numspec code string), an optional scale (ScaleSpec or valid
+scale spec code string), and an optional name for the datatype, returns a DataType, which can be passed to a cast function.
+If the name is omitted, one is manufactured.
+
+```python
+import tcast
+nspec, sspec = number("e5m6"), scale("e8m0_t32")
+dtype = tcast.datatype(nspec, sspec, name="e5m6_e32")
+# or
+dtype = tcast.datatype("e5m6", "e8m0_t32", name="e5m6_e32")
+```
+
+#### cast
+
+This is intended to be a universal interface to the Cast class, but will be supplemented by task-specific cast methods,
+suct as `sparse`.  For the current virtual cast limitation, so scale data needs to be returned, and the only parameters
+needed are the input `torch.Tensor` and `DataType`, with optional overrides for roundmode and scalemode.
+
+```python
+import tcast
+x = tcast.cast(
+        torch.randn(1024, 1024, device="cuda", dtype=torch.float16),
+        tcast.datatype("e5m6", "e8m0_t32", name="e5m6_e32"),
+        roundmode="nearest",
+        scalemode="auto"
+    )
+```
+
+Many common datatypes are predefined, which simplifies the calls:
+
+```python
+import tcast
+x = torch.randn(1024, 1024, device="cuda", dtype=torch.float16)
+c = tcast.cast(x, tcast.mxfp6e2)
+```
+
+#### sparse
+
+A simple sparsity function is provided that preserves the M highest magnitude values from N values in a tile along
+the specified dimension.  In practical hardware terms, the dimension would be the inner dimension of a GEMM and M and N
+would be mandated by the hardware platform.  Clearly, sparsity has many variations, and magnitude may not be the best
+qualifier, but this is a start.
+
+```python
+import tcast
+s = tcast.sparse(x, 8, 4)  # 4 of 8 dense values from each tile of 8
+```
 
 ## Development Plan
 
@@ -189,11 +275,12 @@ The feature set planned for version 1 is:
 - Tensor scaled signed integers with float or exponent scales
 - Single channel scaled types, as decribed above in tensor scaling
 - Single dimension tile scaled types, as described above; tile sizes are powers of two with exponents in [2, 10]
+- M of N sparsity within tiles or subtiles
 - round modes: nearest, even, zero, and stochastic
 - scale modes (exponent selection): max and auto
 - PyTorch python operations for casting
-- C++ (CPU) casting n PyTorch extension
-- C++ (HIP/CUDA) casting in PyTorch extension
+- *C++ (CPU) casting in PyTorch extension*
+- *C++ (HIP/CUDA) casting in PyTorch extension*
 
 The feature set planned for version 2 is:
 
@@ -204,4 +291,3 @@ The feature set planned for version 2 is:
 - coded number specs (arbitrary lookup table of values)
 - MSFP MX9/MX6/MX4 datatype support
 - hierarchical scaling (tensor + tile + subtile + individual exponents)
-- M of N sparsity within tiles or subtiles
