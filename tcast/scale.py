@@ -27,28 +27,39 @@ class ScaleSpec:
         self._decode(code)
         self._check()
 
+    def _valid_tile(self, tile: int):
+        return tile in (0, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024)
+
+    def _set_nspec(self, nspec: str):
+        if self.scale is None:
+            self.scale = NumberSpec(nspec)
+        elif self.zero is None:
+            self.zero = NumberSpec(nspec)
+        else:
+            raise ValueError(f"ScaleSpec: more than two NumberSpecs provided in string code '{self.name}'.")
+
+    def _set_tile(self, tile: int, dim: int = None):
+        if not self._valid_tile(tile):
+            raise ValueError(f"ScaleSpec: '{tile}' is not a supported tile size.")
+        if self.tile is not None:
+            raise ValueError(f"ScaleSpec: second tile spec found in '{self.name}'")
+        self.tile = tile
+        self.is_channel, self.is_tile = self.tile == 0, self.tile != 0
+
     def _decode(self, code: str) -> None:
         """Sets fields based on input string code."""
         self.name = code = code.lower()
-        # Code is simple now, but will get more involved as 2D tiles, subtiles, hierarchical scales, etc. are
-        # introduced.  Currently the string is one or two NumberSpec codes (scale and optional zero point) and
+        # The string is one or two NumberSpec codes (scale and optional zero point) and
         # an optional tile spec code, separated by underscores.  The tilespec is tXdY, where X is the tile size
         # and Y is the dimension of the tile. If omitted, this is a tensor scale; if present with X=0, it is a
         # channel scale.  If the dimension is omitted, it defaults to -1, or the last dimension of the tensor.
         for segment in code.split("_"):
-            if self.tile:
-                raise ValueError(f"ScaleSpec: spurious code segment '{segment}' found after tile spec.")
             if NumberSpec.valid(segment):
-                if self.scale is None:
-                    self.scale = NumberSpec(segment)
-                elif self.zero is None:
-                    self.zero = NumberSpec(segment)
-                else:
-                    raise ValueError(f"ScaleSpec: more than two NumberSpecs provided in string code '{code}'.")
-            elif m := re.fullmatch(r"t(\d+)d?(\d+)?", segment):
-                self.tile = int(m.group(1))
-                self.is_channel, self.is_tile = self.tile == 0, self.tile != 0
-                self.dim = int(m.group(2)) if m.group(2) else -1
+                self._set_nspec(segment)
+            elif m := re.fullmatch(r"t(\d+)(d\d+)?", segment):
+                if self.tile is not None:
+                    raise ValueError(f"ScaleSpec: spurious code segment '{segment}' found after tile spec.")
+                self._set_tile(int(m.group(1)), int(m.group(2)[1:]) if m.group(2) else -1)
             else:
                 raise ValueError(f"ScaleSpec: '{segment}' is neither a valid number or tile specification.")
         if self.tile is None:
@@ -59,8 +70,8 @@ class ScaleSpec:
     def _check(self):
         # TODO(ericd): additional checks for bad/unsupported combinations of values that parsed correctly
         prefix = f"ScaleSpec: '{self.name}'"
-        if self.tile and self.tile not in (2, 4, 8, 16, 32, 64, 128, 256, 512, 1024):
-            raise NotImplementedError(f"{prefix} tile size {self.tile} is onlhy supported for powers of 2 in [2, 1024]")
+        if not self.scale:
+            raise ValueError(f"{prefix} does not specify a scale.")
         if self.zero:
             if not self.scale.is_float:
                 raise ValueError(f"{prefix} asymmetric scaling requires a float scale")
@@ -93,3 +104,4 @@ class ScaleSpec:
             return True
         except (ValueError, NotImplementedError):
             return False
+
