@@ -83,7 +83,7 @@ class ScaleSpec:
         assert self.shape is None
         if not self.is_tile:
             return tensor
-        tensor = tensor.transpose(self.dim, -1)
+        #tensor = tensor.transpose(self.dim, -1) TODO: do we support this in first version?
         self.shape = tensor.shape
         return tensor.reshape(-1, self.tile)
 
@@ -94,7 +94,7 @@ class ScaleSpec:
         assert self.shape
         tensor = tensor.reshape(self.shape)
         self.shape = None
-        return tensor.transpose(self.dim, -1)
+        return tensor#.transpose(self.dim, -1) TODO: do we support this in first version?
 
     @classmethod
     def valid(cls, code: str) -> bool:

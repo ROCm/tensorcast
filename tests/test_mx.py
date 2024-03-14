@@ -14,17 +14,39 @@ except ImportError:
 @pytest.mark.parametrize("datatype", ['float16', 'bfloat16'])
 @pytest.mark.skipif(not MX_AVAILABLE, reason="MX library is not available. github.com/microsoft/microxcaling")
 
-def test_torch_datatypes(datatype):
+def test_mx_unscaled_datatypes(datatype):
+    roundmode = 'even'
     tensor = torch.randn(1000, 1000).float()
     mx_specs = MxSpecs()
     if datatype == 'float16':
         mx_specs['fp'] = 16
     elif datatype == 'bfloat16':
         mx_specs['bfloat'] = 16
-    mx_specs['round'] = 'even'
+    mx_specs['round'] = roundmode
     tensor_mx = quantize_elemwise_op(tensor, mx_specs)
     if 'fp' in datatype:
         datatype = datatype[4:]
     tcast_dt = tcast.datatype(datatype)
-    tensor_tcast = tcast.cast(tensor, dtype=tcast_dt)
+    tensor_tcast = tcast.cast(tensor, dtype=tcast_dt, roundmode=roundmode)
+    compare_2(tensor_mx, tensor_tcast)
+
+@pytest.mark.parametrize("datatype", ['int8', 'int4', 'fp8_e5m2', 'fp8_e4m3', 'fp6_e3m2', 'fp6_e2m3', 'fp4_e2m1'])
+@pytest.mark.skipif(not MX_AVAILABLE, reason="MX library is not available. github.com/microsoft/microxcaling")
+
+def test_mx_scaled_datatypes(datatype):
+    roundmode = 'nearest'
+    tensor = torch.randn(1000, 1000).float()
+    mx_specs = MxSpecs()
+    mx_specs['block_size'] = 32
+    mx_specs['round'] = roundmode
+    tensor_mx = quantize_mx_op(tensor, mx_specs, elem_format=datatype, axes=-1)
+    if 'fp' in datatype:
+        datatype = datatype[4:]
+    if 'e4' in datatype:
+        datatype += 'fn'
+    elif 'e3' in datatype or 'e2' in datatype:
+        datatype += 'fnuz'
+    tcast_dt = tcast.datatype(datatype, "e8m0_t32")
+
+    tensor_tcast = tcast.cast(tensor, dtype=tcast_dt, roundmode=roundmode, scalemode="auto")
     compare_2(tensor_mx, tensor_tcast)
