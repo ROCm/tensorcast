@@ -37,7 +37,7 @@ class DataType:
                 raise ValueError(f"{prefix} only float data can be cast unscaled.")
             return
         if self.nspec.is_exponent:
-            raise ValueError(f"{prefix} eponent number spec is only permitted as a scale.")
+            raise ValueError(f"{prefix} exponent number spec is only permitted as a scale.")
         if self.sspec.zero and not self.nspec.is_uint:
             raise ValueError(f"{prefix} zero spec in scale is incompatible with float or signed int data spec.")
         if self.nspec.is_uint and not self.sspec.zero:
