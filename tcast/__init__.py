@@ -45,7 +45,7 @@ def cast(x: torch.Tensor, dtype: DataType, roundmode: RoundMode = None, scalemod
 
 def sparse(x: torch.Tensor, stile: int, dense: int, dim: int = -1) -> torch.Tensor:
     """Virtual cast a tensor to a scaled or unscaled datatype."""
-    return Cast.sparse(x, stile, dense, -1)
+    return Cast.sparse(x, stile, dense, dim)
 
 
 #####
