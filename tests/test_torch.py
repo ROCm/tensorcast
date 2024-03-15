@@ -13,11 +13,6 @@ def test_torch_datatypes(datatype):
     if 'float8_' in datatype:
         if not tcast.utils.is_float8_available():
             pytest.skip("Skipping because float8 is not available")
-        datatype = datatype[7:]
-        if 'fnuz' in datatype: # TODO: is there a better way to do this?
-            e = int(datatype[1])
-            bias = str(2**(e-1))
-            datatype = datatype[:-4]+'b'+bias+'fnuz'
     tcast_dt = tcast.datatype(datatype)
     tensor_tcast = tcast.cast(tensor, dtype=tcast_dt, roundmode="even")
     compare_2(tensor_torch, tensor_tcast)
