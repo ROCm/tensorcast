@@ -118,10 +118,10 @@ class NumberSpec:
                 self.signed = not (self.infnan == "ieee" and self.mbits == 0)
                 if self.bias is None:
                     self.bias = 2 ** (self.ebits - 1) - 1
-                    if self.torch_dtype and self.infnan == "fnuz":
+                    if self.infnan == "fnuz" and (self.torch_dtype or self.ebits == 1):
                         self.bias += 1
                 else:
-                    self.bias = int(self.bias)
+                    self.bias = int(self.bias[1:])
         if self.ebits is None:
             raise ValueError(f"NumberSpec: code {code} is not a valid format.")
 
