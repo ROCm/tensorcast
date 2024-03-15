@@ -49,6 +49,3 @@ def test_mx_scaled_datatypes(datatype, roundmode):
     tcast_dt = tcast.datatype(datatype, "e8m0_t32")
     tensor_tcast = tcast.cast(tensor, dtype=tcast_dt, roundmode=roundmode, scalemode="max")
     compare_2(tensor_mx, tensor_tcast)
-
-if __name__ == "__main__":
-    test_mx_scaled_datatypes('fp4_e2m1')
