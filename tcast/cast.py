@@ -21,6 +21,8 @@ class Cast:
 
     @classmethod
     def _round(cls, x: torch.Tensor) -> torch.Tensor:
+        if cls.roundmode == "none":
+            return x
         if cls.roundmode == "stochastic":
             return torch.sign(x) * torch.trunc(torch.abs(x) + torch.rand_like(x))
         if cls.roundmode == "even":
