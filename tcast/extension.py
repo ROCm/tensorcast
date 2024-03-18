@@ -8,6 +8,7 @@ from types import ModuleType
 import torch
 from torch.utils.cpp_extension import load
 
+from .datatype import DataType
 from .utils import is_float8_available
 
 
@@ -15,12 +16,7 @@ class Extension:
     """Wrapper for PyTorch extension."""
 
     def __init__(
-        self,
-        extname: str = None,
-        srcpath: Path = None,
-        exec_only: bool = False,
-        cpu_only: bool = False,
-        verbose: bool = True,
+        self, extname: str = None, srcpath: Path = None, exec_only: bool = False, cpu_only: bool = False, verbose: bool = True
     ):
         if extname is None:
             extname = "tcast_extension"
@@ -123,10 +119,10 @@ class Extension:
         assert platform in ("cpu", "gpu")
         return hasattr(self, f"{name}_{platform}")
 
-    def exec_operation(self, tensor: torch.Tensor, name: str, platform: str, **kwargs) -> torch.Tensor:
+    def exec_operation(self, tensor: torch.Tensor, dtype: DataType, name: str, platform: str, **kwargs) -> torch.Tensor:
         """Run an operation that has (at least) a tensor."""
         assert self.has_operation(name, platform)
         tplatform = "cpu" if tensor.is_cpu else "gpu"
         if tplatform != platform:
             raise NotImplementedError(f"Extension: tensor is on {tplatform}, but op '{name}' is for {platform}")
-        return getattr(self, f"{name}_{platform}")(tensor, **kwargs)
+        return getattr(self, f"{name}_{platform}")(tensor, dtype, **kwargs)

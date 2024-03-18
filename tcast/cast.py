@@ -53,7 +53,7 @@ class Cast:
             if cls.extension is None:
                 cls.extension = Extension()
             if cls.extension.has_operation("vcast", cls.compmode):
-                return cls.extension.exec_operation("vcast", cls.compmode)
+                return cls.extension.exec_operation(x, dtype, "vcast", cls.compmode)
         xtype = x.dtype
         x = x.clone()
         if dtype.is_unscaled:
