@@ -80,6 +80,7 @@ class NumberSpec:
         if ttype := getattr(torch, code, False):
             if self.torch_dtype is None and isinstance(ttype, torch.dtype):
                 self.torch_dtype = ttype
+        bias_hack = int(code.startswith("float8") and code.endswith("fnuz"))  # implicit non-standard bias for torch fnuz types
         self.name = code = code.removeprefix("float8_")
         # 2.  Check for implicitly scaled datatypes
         if self.name in MX2NUMSPEC:
@@ -117,9 +118,7 @@ class NumberSpec:
                 self.infnan = m.group(4) or "ieee"
                 self.signed = not (self.infnan == "ieee" and self.mbits == 0)
                 if self.bias is None:
-                    self.bias = 2 ** (self.ebits - 1) - 1
-                    if self.infnan == "fnuz" and (self.torch_dtype or self.ebits == 1):
-                        self.bias += 1
+                    self.bias = 2 ** (self.ebits - 1) - 1 + bias_hack
                 else:
                     self.bias = int(self.bias[1:])
         if self.ebits is None:
@@ -171,7 +170,6 @@ class NumberSpec:
         if not self.is_uint:
             if self.ebits < 1 or self.ebits > 8:
                 raise ValueError(f"NumberSpec: ({self.name}) ebits '{self.ebits}' needs to be in [1, 8]")
-
 
     @classmethod
     def valid(cls, code: str | torch.dtype) -> bool:

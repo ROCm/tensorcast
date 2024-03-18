@@ -40,7 +40,7 @@ handling of infinite numbers and NaN.  All floating point numbers are signed, wi
 modes of inf/NaN handling are supported: *ieee*, *fn*, and *fnuz*.  The *ieee* mode is the default, and follows the standard IEEE
 model of reserving the highest biased exponent value for infinite numbers and NaN.  The *fn* mode (**f**inite + **n**an) does not
 represent inf, and uses the highest representable value (all bits excluding sign are ones) as the NaN value.  The *fnuz* mode
-(**f**inite + **n**an represented as **u**nsigned **z**ero), which is LLVM/MLIR standard, even though the meaning is that negative
+(**f**inite + **n**an represented as **u**nsigned **z**ero), which is LLVM/MLIR standard, where the meaning is that negative
 zero indicates NaN, and positive zero is zero.
 
 Athough unsigned floats and disabling subnormals are potential future features, they are not planned.  There is, however,
