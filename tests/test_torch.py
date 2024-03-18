@@ -17,3 +17,7 @@ def test_torch_datatypes(datatype):
     tensor_tcast = tcast.cast(tensor, dtype=tcast_dt, roundmode="even")
     compare_2(tensor_torch, tensor_tcast)
 
+
+if __name__ == "__main__":
+    test_torch_datatypes('float8_e4m3fnuz')
+
