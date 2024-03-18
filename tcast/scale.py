@@ -44,6 +44,7 @@ class ScaleSpec:
         if self.tile is not None:
             raise ValueError(f"ScaleSpec: second tile spec found in '{self.name}'")
         self.tile = tile
+        self.dim = -1 if dim is None else dim
         self.is_channel, self.is_tile = self.tile == 0, self.tile != 0
 
     def _decode(self, code: str) -> None:
