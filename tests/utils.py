@@ -7,8 +7,6 @@ def compare_2(tensor1, tensor2):
         if torch.allclose(tensor1, tensor2):
             return
         else:
-            print("tensor1: ", tensor1)
-            print("tensor2: ", tensor2)
             raise ValueError
 
 def float_to_bits(value_in_float):
@@ -136,7 +134,7 @@ def block_to_bfp(tensor, dtype, rmode):
     bits = float_to_bits(tensor[max_idx].item())
     max_exp = (bits >> 23) & 0xFF
     tq = torch.zeros_like(tensor)
-    
+
     for i in range(tensor.shape[0]):
         tq[i] = float_to_bfp(tensor[i].item(), max_exp, rmode, dtype.nspec.mbits+1)
 
