@@ -3,9 +3,9 @@ import tcast
 import torch
 from tests.utils import compare_2, tensor_to_bfp
 
-@pytest.mark.parametrize("datatype", ['bfp16', 'bfp15', 'bfp14'])
+@pytest.mark.parametrize("datatype", ['bfp16', 'bfp15', 'bfp14', 'bfp13'])
 @pytest.mark.parametrize("roundmode", ["even", "nearest"])
-@pytest.mark.parametrize("block_size", ["8", "16"])
+@pytest.mark.parametrize("block_size", ["8", "16", "32"])
 
 def test_bfp(datatype, roundmode, block_size):
     tensor = torch.randn(16, 1024).float()
