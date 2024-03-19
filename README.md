@@ -199,7 +199,7 @@ This function, given a valid code string, returns a NumberSpec, which can then b
 
 ```python
 import tcast
-nspec = tcast.make_number("e5m6") # fp12, an abbreviated version of fp16
+nspec = tcast.number("e5m6") # fp12, an abbreviated version of fp16
 ```
 
 #### scale
@@ -208,7 +208,7 @@ This function, given a valid code string, returns a ScaleSpec, which can then be
 
 ```python
 import tcast
-sspec = tcast.make_scale("e8m0_t32") # power of 2 scaling on the last dimension with tile size 32
+sspec = tcast.scale("e8m0_t32") # power of 2 scaling on the last dimension with tile size 32
 ```
 
 #### datatype
