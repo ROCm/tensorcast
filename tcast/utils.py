@@ -45,3 +45,7 @@ def check_literal(s: str, lit, none_ok=False) -> None:
     if s not in vals and (s is not None or not none_ok):
         raise ValueError(f"{s} is not a valid {lit.__name__} value: {','.join(vals)}")
     return s
+
+def is_power_of_2(n: int) -> bool:
+    """Check for power of 2."""
+    return (n & (n - 1)) == 0
