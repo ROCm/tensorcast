@@ -70,6 +70,19 @@ class NumberSpec:
         """Returns smallest_normal, as in torch.finfo."""
         return self.smallest_normal
 
+    def get_number_line(self) -> list[float]:
+        """All possible values for this number specification."""
+        if self.bits > 8:
+            raise ValueError(f"NumberSpec: too many number line values for {self.bits} bits")
+        if not (self.is_float or self.ebits == 1):
+            raise ValueError("NumberSpec: number line must be for float or float-like numbers.")
+        # get the non-negative numbers then mirror for negatives, giving all 2^bits values, including 2 zeros
+        line = [0.0]
+        line += [i * self.smallest_subnormal for i in range(2**self.mbits)]  # subnormals
+        for e in range(self.emax - self.emin + 1):
+            line += [(self.smallest_normal + i * self.smallest_subnormal) * 2 ** (e + 1) for i in range(2**self.mbits)]
+        return [-v for v in reversed(line)] + line
+
     def _decode(self, code: str | torch.dtype) -> None:
         """Sets fields based on input code string."""
         # 1.  Handle the case of the spec defined by a torch.dtype
