@@ -51,13 +51,23 @@ class NumberSpec:
     minint: int = None
     torch_dtype: torch.dtype = None
 
+    lookup_table: list[list[float]] = None
+    lookup_name: str = None
+    midpoints: list[list[float]] = None
+    mapnames: list[str] = None
+    index_bits: int = None
+    lookup_bits: int = None
+    _number_line: list[float] = None
+
     def __init__(self, code: str | torch.dtype):
         self._decode(code)
         self._check()
 
     @property
-    def name(self) -> str:
-        """Returns the name.  May be overloaded in a subclass."""
+    def name(self):
+        """NumberSpec name or both lookup name and number name."""
+        if self.is_lookup:
+            return self.lookup_name + "_" + self._name
         return self._name
 
     @property
@@ -75,20 +85,113 @@ class NumberSpec:
         """Returns smallest_normal, as in torch.finfo."""
         return self.smallest_normal
 
+    @property
+    def number_line(self) -> list[float] | None:
+        return self.get_number_line()
+
+    @property
+    def lookup(self) -> list[list[float]]:
+        return self.lookup_table
+
+    @property
+    def is_lookup(self) -> bool:
+        return self.lookup_table is not None
+
+    @property
+    def num_mappings(self) -> int:
+        return 2**self.lookup_bits if self.is_lookup else 0
+
+    @property
+    def current_mappings(self) -> int:
+        return len(self.lookup_table) if self.is_lookup else 0
+
+    @property
+    def num_values(self) -> int:
+        return 2**self.index_bits if self.is_lookup else 0
+
     def get_number_line(self) -> list[float]:
         """All possible values for this number specification."""
-        if self.bits > 8:
-            raise ValueError(f"NumberSpec: too many number line values for {self.bits} bits")
-        if not (self.is_float or self.ebits == 1):
-            raise ValueError("NumberSpec: number line must be for float or float-like numbers.")
-        # get the non-negative numbers then mirror for negatives, giving all 2^bits values, including 2 zeros
-        line = [i * self.smallest_subnormal for i in range(2**self.mbits)]  # subnormals
-        for e in range(self.emax - self.emin + 1):
-            line += [(self.smallest_normal + i * self.smallest_subnormal) * 2 ** e for i in range(2**self.mbits)]
-        return [-v for v in reversed(line)] + line
+        if not self._number_line:
+            if self.bits > 8:
+                raise ValueError(f"NumberSpec: too many number line values for {self.bits} bits")
+            if not (self.is_float or self.ebits == 1):
+                raise ValueError("NumberSpec: number line must be for float or float-like numbers.")
+            # get the non-negative numbers then mirror for negatives, giving all 2^bits values, including 2 zeros
+            line = [i * self.smallest_subnormal for i in range(2**self.mbits)]  # subnormals
+            for e in range(self.emax - self.emin + 1):
+                line += [(self.smallest_normal + i * self.smallest_subnormal) * 2**e for i in range(2**self.mbits)]
+            self._number_line = [-v for v in reversed(line)] + line
+        return self._number_line
+
+    def add_mapping(self, mapping: list[float], mapname: str):
+        """Add a new lookup."""
+        if not self.is_lookup:
+            raise RuntimeError("NumberSpec.add_mapping called for non-lookup number spec.")
+        if self.current_mappings == self.num_mappings:
+            raise RuntimeError(f"NumberSpec.add_mapping exceeds number of mappings specified ({self.num_mappings}).")
+        for v in mapping:
+            if v not in self.number_line:
+                raise ValueError(f"NumberSpec.add_mapping: mapping value {v} is not representable in {self.name}")
+        self.lookup_table.append(mapping)
+        self.midpoints.append([(mapping[i] + mapping[i + 1]) / 2.0 for i in range(len(mapping) - 1)])
+        self.mapnames.append(mapname)
+
+    def get_mapping(
+        self, index: int = None, torch_dtype: torch.dtype = torch.float32, device: torch.device = "cuda"
+    ) -> torch.Tensor:
+        """Return one or all of the lookups as a tensor."""
+        if not self.is_lookup:
+            raise RuntimeError("NumberSpec.get_mapping called for non-lookup number spec.")
+        if index is not None:
+            if index >= len(self.lookup_table):
+                raise ValueError(f"Lookup: getting mapping {index} when there are only {len(self.lookup_table)}.")
+            vals = self.lookup_table[index]
+        else:
+            vals = self.lookup_table
+        return torch.tensor(vals, dtype=torch_dtype, device=device)
+
+    def get_midpoints(
+        self, index: int = None, torch_dtype: torch.dtype = torch.float32, device: torch.device = "cuda"
+    ) -> torch.Tensor:
+        """Return one or all of the midpoint vectors as a tensor."""
+        if not self.is_lookup:
+            raise RuntimeError("NumberSpec.get_midpoints called for non-lookup number spec.")
+        if index is not None:
+            if index >= len(self.midpoints):
+                raise ValueError(f"Lookup: getting lookup {index} when there are only {len(self.midpoints)}.")
+            vals = self.midpoints[index]
+        else:
+            vals = self.midpoints
+        return torch.tensor(vals, dtype=torch_dtype, device=device)
+
+    def indices_from_vals(self, vals: list[float] | float, line: list[float] = None) -> list[int]:
+        """Reverse search the number line to return indices."""
+        if isinstance(vals, float):
+            vals = [vals]
+        if line is None:
+            line = self.number_line
+        return [line.index(v) for v in vals]
+
+    def vals_from_indices(self, indices: list[int] | int, line: list[float] = None) -> list[float]:
+        """Return values given a list of indices into number line."""
+        if isinstance(indices, int):
+            indices = [indices]
+        if line is None:
+            line = self.number_line
+        return [line[i] for i in indices]
 
     def _decode(self, code: str | torch.dtype) -> None:
         """Sets fields based on input code string."""
+        # 0:  Handle lookup table specs, which are separated from the compute spec by an underscore.
+        if isinstance(code, str) and code.count("_") != 0 and not code.startswith("float8_"):
+            split = code.split("_")
+            lcode, ccode = split[0], "_".join(split[1:])
+            self._decode(ccode)
+            if m := re.fullmatch(r"l(\d)(\d)(.*)", lcode):
+                self.index_bits, self.lookup_bits, self.lookup_name = int(m.group(1)), int(m.group(2)), m.group(3)
+                self.lookup_table, self.midpoints, self.mapnames = [], [], []
+                return
+            raise ValueError(f"NumberSpec lookup code {code} is invalid.")
         # 1.  Handle the case of the spec defined by a torch.dtype
         if isinstance(code, torch.dtype):
             self.torch_dtype = code
