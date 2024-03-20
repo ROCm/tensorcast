@@ -10,7 +10,15 @@ from .datatype import DataType
 from .extension import Extension
 from .number import NumberSpec
 from .scale import ScaleSpec
-from .utils import TensorCastInternalError, check_literal, is_float8_available, is_gpu_available, is_installed, printoptions
+from .utils import (
+    TensorCastInternalError,
+    check_literal,
+    is_float8_available,
+    is_gpu_available,
+    is_installed,
+    is_power_of_2,
+    printoptions,
+)
 
 __version__ = Path(__file__).with_name("version.txt").open().read().strip()
 

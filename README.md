@@ -277,7 +277,7 @@ The feature set planned for version 1 is:
 - Single dimension tile scaled types, as described above; tile sizes are powers of two with exponents in [2, 10]
 - M of N sparsity within tiles or subtiles
 - round modes: nearest, even, zero, and stochastic
-- scale modes (exponent selection): max and auto
+- scale modes (exponent selection): max and midmax
 - PyTorch python operations for casting
 - *C++ (CPU) casting in PyTorch extension*
 - *C++ (HIP/CUDA) casting in PyTorch extension*
@@ -288,6 +288,6 @@ The feature set planned for version 2 is:
 - 2D tile specifications
 - 1D and 2D subtile specifications with scale offsets from tile scale
 - tile and subtile-specific number specifications with selection metadata ("multicast")
-- coded number specs (arbitrary lookup table of values)
+- lookup table number specs
 - MSFP MX9/MX6/MX4 datatype support
 - hierarchical scaling (tensor + tile + subtile + individual exponents)

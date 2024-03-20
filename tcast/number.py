@@ -29,7 +29,7 @@ MXUNSUPPORTED = ("mx9", "mx6", "mx3")
 class NumberSpec:
     """Specification for an unscaled number format."""
 
-    name: str = None
+    _name: str = None
     bits: int = None
     ebits: int = None
     mbits: int = None
@@ -56,6 +56,11 @@ class NumberSpec:
         self._check()
 
     @property
+    def name(self) -> str:
+        """Returns the name.  May be overloaded in a subclass."""
+        return self._name
+
+    @property
     def max(self) -> int | float:
         """Returns maxfloat for floats, maxint for integers."""
         return self.maxfloat if self.is_float else self.maxint
@@ -77,10 +82,9 @@ class NumberSpec:
         if not (self.is_float or self.ebits == 1):
             raise ValueError("NumberSpec: number line must be for float or float-like numbers.")
         # get the non-negative numbers then mirror for negatives, giving all 2^bits values, including 2 zeros
-        line = [0.0]
-        line += [i * self.smallest_subnormal for i in range(2**self.mbits)]  # subnormals
+        line = [i * self.smallest_subnormal for i in range(2**self.mbits)]  # subnormals
         for e in range(self.emax - self.emin + 1):
-            line += [(self.smallest_normal + i * self.smallest_subnormal) * 2 ** (e + 1) for i in range(2**self.mbits)]
+            line += [(self.smallest_normal + i * self.smallest_subnormal) * 2 ** e for i in range(2**self.mbits)]
         return [-v for v in reversed(line)] + line
 
     def _decode(self, code: str | torch.dtype) -> None:
@@ -94,22 +98,22 @@ class NumberSpec:
             if self.torch_dtype is None and isinstance(ttype, torch.dtype):
                 self.torch_dtype = ttype
         bias_hack = int(code.startswith("float8") and code.endswith("fnuz"))  # implicit non-standard bias for torch fnuz types
-        self.name = code = code.removeprefix("float8_")
+        name = code = code.removeprefix("float8_")
         # 2.  Check for implicitly scaled datatypes
-        if self.name in MX2NUMSPEC:
-            tilesize = 8 if self.name.startswith("bfp") else 32
+        if name in MX2NUMSPEC:
+            tilesize = 8 if name.startswith("bfp") else 32
             raise ValueError(
-                f"\tNumberSpec: code '{self.name}' is a scaled datatype rather than a number format.\n"
-                f"\tThe equivalent NumberSpec name is '{MX2NUMSPEC[self.name]}', to be used in conjunction\n"
+                f"\tNumberSpec: code '{name}' is a scaled datatype rather than a number format.\n"
+                f"\tThe equivalent NumberSpec name is '{MX2NUMSPEC[name]}', to be used in conjunction\n"
                 f"\twith a ScaleSpec name of 'e8m0-{tilesize}' when creating the DataType."
             )
-        elif self.name in MXUNSUPPORTED:
+        elif name in MXUNSUPPORTED:
             raise NotImplementedError(
-                f"\tNumberSpec: code '{self.name}' is a scaled datatype rather than a number format.\n"
+                f"\tNumberSpec: code '{name}' is a scaled datatype rather than a number format.\n"
                 f"\tMX types (a/k/a bfp prime) are not yet supported."
             )
         # 3.  Handle float/bfloat/int/uint style string codes for widths > 8
-        if m := re.fullmatch(r"(float|bfloat|int|uint)(\d+)", self.name):
+        if m := re.fullmatch(r"(float|bfloat|int|uint)(\d+)", name):
             prefix, bits = m.group(1), int(m.group(2))
             if prefix == "bfloat":
                 self.ebits, self.mbits, self.bias = 8, bits - 9, 127
@@ -119,14 +123,14 @@ class NumberSpec:
                 elif bits > 8:
                     self.ebits, self.mbits, self.bias = 5, bits - 6, 15
                 else:
-                    raise ValueError(f"NumberSpec: code '{self.name}': float8 and smaller formats require EMB format.")
+                    raise ValueError(f"NumberSpec: code '{name}': float8 and smaller formats require EMB format.")
             elif prefix[0] == "u":
                 self.ebits, self.mbits, self.bias, self.signed, self.infnan = 0, bits, None, False, None
             else:
                 self.ebits, self.mbits, self.bias, self.infnan = 1, bits - 2, 1, "fnuz"
         # 4.  Handle EMB stype string codes
         if self.mbits is None:
-            if m := re.fullmatch(r"e(\d+)m(\d+)(b\d+)?(fn|fnuz)?", self.name):
+            if m := re.fullmatch(r"e(\d+)m(\d+)(b\d+)?(fn|fnuz)?", name):
                 self.ebits, self.mbits, self.bias = int(m.group(1)), int(m.group(2)), m.group(3)
                 self.infnan = m.group(4) or "ieee"
                 self.signed = not (self.infnan == "ieee" and self.mbits == 0)
@@ -136,6 +140,7 @@ class NumberSpec:
                     self.bias = int(self.bias[1:])
         if self.ebits is None:
             raise ValueError(f"NumberSpec: code {code} is not a valid format.")
+        self._name = name
 
         # 5.  Fill in the remaining fields in the spec from ebits/mbits/signed/infnan
         self.is_int = self.ebits == 1 and self.bias == 1 and self.signed and self.infnan == "fnuz"
@@ -175,6 +180,7 @@ class NumberSpec:
                 return torch.float8_e4m3fn
             if self.ebits == 4 and self.mbits == 3 and self.bias == 8 and self.infnan == "fnuz":
                 return torch.float8_e4m3fnuz
+        return None
 
     def _check(self) -> None:
         # TODO(ericd): additional checks for bad/unsupported combinations of values that parsed correctly

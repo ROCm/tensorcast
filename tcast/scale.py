@@ -81,7 +81,6 @@ class ScaleSpec:
 
     def reshape_tensor(self, tensor: torch.Tensor) -> torch.Tensor:
         """Reshape and/or transpose tensor for scaling."""
-        assert self.shape is None
         if not self.is_tile:
             return tensor
         tensor = tensor.transpose(self.dim, -1)
