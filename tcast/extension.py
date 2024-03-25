@@ -9,7 +9,7 @@ import torch
 from torch.utils.cpp_extension import load
 
 from .datatype import DataType
-from .utils import is_float8_available
+from .utils import is_float8_available, is_float8_fnuz_available
 
 
 class Extension:

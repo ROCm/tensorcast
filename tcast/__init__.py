@@ -14,6 +14,7 @@ from .utils import (
     TensorCastInternalError,
     check_literal,
     is_float8_available,
+    is_float8_fnuz_available,
     is_gpu_available,
     is_installed,
     is_power_of_2,
@@ -92,8 +93,9 @@ float16 = DataType(torch.float16)
 bfloat16 = DataType(torch.bfloat16)
 if is_float8_available():
     float8_e5m2 = DataType(torch.float8_e5m2)
-    float8_e5m2fnuz = DataType(torch.float8_e5m2fnuz)  # bias is 16, nonstandard, matches MI300
     float8_e4m3fn = DataType(torch.float8_e4m3fn)
+if is_float8_fnuz_available():
+    float8_e5m2fnuz = DataType(torch.float8_e5m2fnuz)  # bias is 16, nonstandard, matches MI300
     float8_e4m3fnuz = DataType(torch.float8_e4m3fnuz)  # bias is 8, nonstandard, matches MI300
 
 # 5-bit exponent
