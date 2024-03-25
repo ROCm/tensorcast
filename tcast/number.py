@@ -7,7 +7,7 @@ from typing import Literal
 
 import torch
 
-from .utils import is_float8_available
+from .utils import is_float8_available, is_float8_fnuz_available
 
 InfNan = Literal["ieee", "fn", "fnuz"]
 
@@ -302,10 +302,11 @@ class NumberSpec:
         if self.bits == 8 and is_float8_available():
             if self.ebits == 5 and self.mbits == 2 and self.bias == 15 and self.infnan == "ieee":
                 return torch.float8_e5m2
-            if self.ebits == 5 and self.mbits == 2 and self.bias == 16 and self.infnan == "fnuz":
-                return torch.float8_e5m2fnuz
             if self.ebits == 4 and self.mbits == 3 and self.bias == 7 and self.infnan == "fn":
                 return torch.float8_e4m3fn
+        if self.bits == 8 and is_float8_fnuz_available():
+            if self.ebits == 5 and self.mbits == 2 and self.bias == 16 and self.infnan == "fnuz":
+                return torch.float8_e5m2fnuz
             if self.ebits == 4 and self.mbits == 3 and self.bias == 8 and self.infnan == "fnuz":
                 return torch.float8_e4m3fnuz
         return None

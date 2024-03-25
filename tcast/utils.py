@@ -28,7 +28,6 @@ def is_float8_available():
     """Check to see if float8 is present in this version of PyTorch."""
     return hasattr(torch, "float8_e4m3fn")
 
-
 def is_float8_fnuz_available():
     """Check to see if MI300 float8 is present in this version of PyTorch."""
     return hasattr(torch, "float8_e4m3fnuz")
