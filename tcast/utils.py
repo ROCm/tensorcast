@@ -29,6 +29,11 @@ def is_float8_available():
     return hasattr(torch, "float8_e4m3fn")
 
 
+def is_float8_fnuz_available():
+    """Check to see if MI300 float8 is present in this version of PyTorch."""
+    return hasattr(torch, "float8_e4m3fnuz")
+
+
 def printoptions(precision: int = 8):
     """Set PyTorch printoptions to something useful."""
     torch.set_printoptions(precision=precision, sci_mode=False)
@@ -49,3 +54,7 @@ def check_literal(s: str, lit, none_ok=False) -> None:
 def is_power_of_2(n: int) -> bool:
     """Check for power of 2."""
     return (n & (n - 1)) == 0
+
+def next_power_of_2(n: int) -> bool:
+    """If this is not, find the next highest one."""
+    return 1 << (n - 1).bit_length()

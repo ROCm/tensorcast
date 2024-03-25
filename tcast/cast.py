@@ -9,10 +9,12 @@ import torch
 from .datatype import DataType
 from .extension import Extension
 from .number import NumberSpec
+from .scale import ScaleData, ScaledTensor
 from .utils import check_literal
 
 RoundMode = Literal["even", "away", "zero", "stochastic", "nearest"]  # "nearest" is an alias for "away"
 ScaleMode = Literal["max", "midmax", "auto"] # "auto" is an alias for "midmax"
+CastMode = Literal["virtual", "prescaled", "scale"]
 ComputeMode = Literal["cpu", "gpu", "torch"]
 
 
@@ -58,7 +60,7 @@ class Cast:
         return x
 
     @classmethod
-    def _get_scales(cls, x: torch.Tensor, dtype: DataType, noreshape: bool = False) -> tuple[torch.Tensor, torch.Tensor]:
+    def _get_scales(cls, x: torch.Tensor, dtype: DataType, noreshape: bool = False) -> ScaleData:
         """Find and return the scale factors."""
         assert dtype and dtype.sspec
         if ret := cls._run_extension(x, dtype, "get_scales") is not None:
@@ -68,6 +70,7 @@ class Cast:
         if not (dtype.sspec.is_tensor or noreshape):
             x = dtype.sspec.reshape_tensor(x)
         zero: torch.Tensor = None
+        offset: torch.Tensor = None
         if dtype.nspec.is_uint:
             assert dtype.sspec.scale.is_float
             tmin, tmax = torch.aminmax(x, dim=dim, keepdim=True)
@@ -82,22 +85,19 @@ class Cast:
             )
         else:
             maxexp = cls._safe_frexp(x).amax(dim=dim, keepdim=True) - 1 - dtype.nspec.emax
-            if dtype.sspec.subtile:
+            if dtype.nspec.ebits > 1 and cls.scalemode == "midmax":
+                maxexp[(x * (-maxexp).exp2()).abs().amax(dim=dim) > dtype.nspec.midmax] += 1
+            if dtype.is_offset:
                 # reshape with subtile as last dim so we can do subtiled lookups or offsets or both
                 if not noreshape:
                     x = dtype.sspec.reshape_tensor(dtype.sspec.revert_tensor(x), True)
                 submaxexp = cls._safe_frexp(x).amax(dim=dim, keepdim=True) - 1 - dtype.nspec.emax
-                # this looks like a kudge, but for non-offset lookups, we either need to expand the scale to the right shape
-                # or we can do this and simple not allow the scale to change across the subtiles in a tile
-                offset = 2**dtype.sspec.offset - 1 if dtype.sspec.is_offset else 0
-                maxexp = submaxexp.clamp_min(maxexp - offset)
-            elif dtype.nspec.ebits > 1 and cls.scalemode == "midmax":
-                maxexp[(x * (-maxexp).exp2()).abs().amax(dim=dim) > dtype.nspec.midmax] += 1
+                offset = (maxexp - submaxexp).clamp_max(maxexp - 2**dtype.sspec.offset - 1)
             if dtype.sspec.scale.is_exponent:
                 # e8m0 is actual exponent + scale bias - nspec emax
                 maxexp += dtype.sspec.scale.bias
             scale = maxexp
-        return scale, zero
+        return ScaleData(scale=scale, zero=zero, offset=offset)
 
     @classmethod
     def _apply_scales(
@@ -151,18 +151,21 @@ class Cast:
         return x
 
     @classmethod
-    def _vcast(cls, x: torch.Tensor, dtype: DataType) -> torch.Tensor:
+    def _vcast(cls, x: torch.Tensor, dtype: DataType) -> ScaledTensor:
         """Virtual cast."""
         if ret := cls._run_extension(x, dtype, "vcast"):
             return ret
         xtype, x = x.dtype, x.clone()
         if dtype.is_unscaled:
-            return cls._cast_unscaled(x, dtype.nspec).to(xtype)
-        scale, zero = cls._get_scales(x, dtype)
-        return cls._apply_scales(x, dtype, scale, zero)
+            scale = zero = None
+            tensor = cls._cast_unscaled(x, dtype.nspec).to(xtype)
+        else:
+            scale, zero = cls._get_scales(x, dtype)
+            tensor = cls._apply_scales(x, dtype, scale, zero)
+        return ScaledTensor(tensor=tensor, scale=scale, zero=zero)
 
     @classmethod
-    def _vcast_lookup(cls, x: torch.Tensor, dtype: DataType, better: Callable = None) -> tuple[torch.Tensor, torch.Tensor]:
+    def _vcast_lookup(cls, x: torch.Tensor, dtype: DataType, better: Callable = None) -> ScaledTensor:
         """Cast a tensor to multiple datatypes based on tile/subtile content."""
 
         def _better(q1: torch.Tensor, q2: torch.Tensor, f: torch.Tensor):
@@ -173,7 +176,7 @@ class Cast:
             if i == 0:
                 scale, _ = cls._get_scales(x, dtype)
                 x = dtype.sspec.reshape_tensor(x, dtype.sspec.is_subtile)
-                choices = torch.zeros(x.shape[0], dtype=torch.int8, device=x.device)
+                select = torch.zeros(x.shape[0], dtype=torch.int8, device=x.device)
                 q = cls._apply_scales(x, dtype, scale, None, lookup=i, noreshape=True)
                 out = q.clone()
             else:
@@ -181,10 +184,10 @@ class Cast:
                     scale, _ = cls._get_scales(x, dtype, noreshape=True)
                 q = cls._apply_scales(x, dtype, scale, None, lookup=i, noreshape=True)
                 choice = better(q, out, x) if better else _better(q, out, x)
-                choices[choice] = i
+                select[choice] = i
                 out[choice] = q[choice]
         out = dtype.sspec.revert_tensor(out)
-        return out, choices
+        return ScaledTensor(tensor=out, lookup=select)
 
     @classmethod
     def sparse(cls, tensor: torch.Tensor, stile: int, dense: int, dim: int = -1) -> torch.Tensor:
@@ -208,13 +211,22 @@ class Cast:
         cls,
         x: torch.Tensor,
         dtype: DataType,
+        castmode: CastMode = "virtual",
         roundmode: RoundMode = None,
         scalemode: ScaleMode = None,
         compmode: ComputeMode = None,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        """Generic cast interface."""
-        # currently not so generic as we are only doing virtual cast
-        # roundmode and scalemode are optional overrides
+        scaledata: ScaleData = None,
+        better: Callable = None,
+    ) -> ScaledTensor:
+        """
+        Generic cast interface.
+
+        CastMode is one of "virtual", "prescaled", or "scale".
+        ScaleData is a named tuple of scale factors and zero points for use with the "scale" mode.
+        better is a function for lookup types to determine which lookup is better by some metric.
+        returns a ScaledTensor with the cast tensor and the calculated scale factors and other metadata.
+        """ # noqa: D200, D212
+        check_literal(castmode, CastMode)
         check_literal(roundmode, RoundMode, True)
         check_literal(scalemode, ScaleMode, True)
         check_literal(compmode, ComputeMode, True)
@@ -222,14 +234,16 @@ class Cast:
         cls.roundmode = roundmode if roundmode else saveround
         cls.scalemode = scalemode if scalemode else savescale
         cls.compmode = compmode if compmode else savecomp
-        if dtype.is_lookup:
-            x, choices = cls._vcast_lookup(x, dtype)
-            # for i in range(dtype.nspec.num_mappings):
-            #     share, name = (choices == i).sum() / choices.numel(), dtype.nspec.mapnames[i]
-            #     print(f"{name}: {share * 100.0:6.3f}%")
+        if castmode == "prescaled":
+            stensor = ScaledTensor(tensor=cls._apply_scales(x, dtype, scaledata.scale, scaledata.zero))
+        elif castmode == "scale":
+            scale, zero = cls._get_scales(x, dtype)
+            stensor = ScaledTensor(scaledata=ScaleData(scale=scale, zero=zero))
+        elif dtype.is_lookup:
+            stensor = cls._vcast_lookup(x, dtype, better)
         else:
-            x = cls._vcast(x, dtype)
+            stensor = cls._vcast(x, dtype)
         cls.roundmode = saveround
         cls.scalemode = savescale
         cls.compmode = savecomp
-        return (x, choices) if dtype.is_lookup else x
+        return stensor

@@ -1,23 +1,27 @@
 """TensorCast: Conversion and compression of arbitrary datatypes."""
 # tcast/__init__.py: package
 
+from collections.abc import Callable
 from pathlib import Path
 
 import torch
 
-from .cast import Cast, ComputeMode, RoundMode, ScaleMode
+from .cast import Cast, CastMode, ComputeMode, RoundMode, ScaleMode
 from .datatype import DataType
 from .extension import Extension
 from .lookup import LookupBuilder
 from .number import NumberSpec
-from .scale import ScaleSpec
+from .scale import ScaleData, ScaledTensor, ScaleSpec
 from .utils import (
     TensorCastInternalError,
     check_literal,
     is_float8_available,
+    is_float8_fnuz_available,
     is_gpu_available,
     is_installed,
     is_power_of_2,
+    litvals,
+    next_power_of_2,
     printoptions,
 )
 
@@ -69,9 +73,32 @@ def datatype(nspec: str | NumberSpec, sspec: str | ScaleSpec = None, name: str =
     return DataType(nspec, sspec, name)
 
 
-def cast(x: torch.Tensor, dtype: DataType, roundmode: RoundMode = None, scalemode: ScaleMode = None) -> torch.Tensor:
+def cast(
+    x: torch.Tensor,
+    dtype: DataType,
+    castmode: CastMode = "virtual",
+    scaledata: ScaleData = None,
+    roundmode: RoundMode = None,
+    scalemode: ScaleMode = None,
+    better: Callable = None,
+) -> ScaledTensor:
+    """Virtual cast a tensor to a scaled or unscaled datatype, possibly prescaled, or just find the scales."""
+    return Cast.cast(x, dtype, castmode, roundmode, scalemode, scaledata, better=better)
+
+
+def get_scales(x: torch.Tensor, dtype: DataType, roundmode: RoundMode = None, scalemode: ScaleMode = None) -> ScaleData:
+    """Find the scales for this tensor and dtype."""
+    return cast(x, dtype, "scale", roundmode, scalemode).scaledata
+
+
+def vcast(
+    x: torch.Tensor, dtype: DataType, scaledata: ScaleData = None, roundmode: RoundMode = None, scalemode: ScaleMode = None
+) -> torch.Tensor:
     """Virtual cast a tensor to a scaled or unscaled datatype."""
-    return Cast.cast(x, dtype, roundmode, scalemode)
+    if scaledata is not None:
+        return cast(x, dtype, "prescaled", roundmode, scalemode, scaledata).tensor
+    else:
+        return cast(x, dtype, "virtual", roundmode, scalemode).tensor
 
 
 def sparse(x: torch.Tensor, stile: int, dense: int, dim: int = -1) -> torch.Tensor:
@@ -93,8 +120,9 @@ float16 = DataType(torch.float16)
 bfloat16 = DataType(torch.bfloat16)
 if is_float8_available():
     float8_e5m2 = DataType(torch.float8_e5m2)
-    float8_e5m2fnuz = DataType(torch.float8_e5m2fnuz)  # bias is 16, nonstandard, matches MI300
     float8_e4m3fn = DataType(torch.float8_e4m3fn)
+if is_float8_fnuz_available():
+    float8_e5m2fnuz = DataType(torch.float8_e5m2fnuz)  # bias is 16, nonstandard, matches MI300
     float8_e4m3fnuz = DataType(torch.float8_e4m3fnuz)  # bias is 8, nonstandard, matches MI300
 
 # 5-bit exponent
@@ -165,65 +193,73 @@ mx9 = DataType("int8", "e8m0_t16s2o1", "mx9")
 mx6 = DataType("int5", "e8m0_t16s2o1", "mx6")
 mx4 = DataType("int3", "e8m0_t16s2o1", "mx4")
 
-# lookup table datatypes
-builder = LookupBuilder("e3m3fnuz", 4)
-l2f4i6_e32 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32")
-l2p6f3_e32 = builder.make_datatype(builder.make_lspec("p6-f3"), "e32")
-l2f4i6_e32s8 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32s8")
-l2p6f3_e32s8 = builder.make_datatype(builder.make_lspec("p6-f3"), "e32s8")
-l2f4i6_e32s4 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32s4")
-l2p6f3_e32s4 = builder.make_datatype(builder.make_lspec("p6-f3"), "e32s4")
-l2f4i6_e32s8o1 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32s8o1")
-l2p6f3_e32s8o1 = builder.make_datatype(builder.make_lspec("p6-f3"), "e32s8o1")
-l2f4i6_e32s4o1 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32s4o1")
-l2p6f3_e32s4o1 = builder.make_datatype(builder.make_lspec("p6-f3"), "e32s4o1")
-l2f4i6_e32s8o2 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32s8o2")
-l2p6f3_e32s8o2 = builder.make_datatype(builder.make_lspec("p6-f3"), "e32s8o2")
-l2f4i6_e32s4o2 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32s4o2")
-l2p6f3_e32s4o2 = builder.make_datatype(builder.make_lspec("p6-f3"), "e32s4o2")
-
-l4f6431_e32 = builder.make_datatype(builder.make_lspec("f6-f4-f3-f1"), "e32")
-l4p6431_e32 = builder.make_datatype(builder.make_lspec("p6-p4-p3-p1"), "e32")
-l4pf6431_e32 = builder.make_datatype(builder.make_lspec("p6-f4-p3-f1"), "e32")
-l4f6431_e32s8 = builder.make_datatype(builder.make_lspec("f6-f4-f3-f1"), "e32s8")
-l4p6431_e32s8 = builder.make_datatype(builder.make_lspec("p6-p4-p3-p1"), "e32s8")
-l4pf6431_e32s8 = builder.make_datatype(builder.make_lspec("p6-f4-p3-f1"), "e32s8")
-l4f6431_e32s4 = builder.make_datatype(builder.make_lspec("f6-f4-f3-f1"), "e32s4")
-l4p6431_e32s4 = builder.make_datatype(builder.make_lspec("p6-p4-p3-p1"), "e32s4")
-l4pf6431_e32s4 = builder.make_datatype(builder.make_lspec("p6-f4-p3-f1"), "e32s4")
-l4f6431_e32s8o2 = builder.make_datatype(builder.make_lspec("f6-f4-f3-f1"), "e32s8o2")
-l4p6431_e32s8o2 = builder.make_datatype(builder.make_lspec("p6-p4-p3-p1"), "e32s8o2")
-l4pf6431_e32s8o2 = builder.make_datatype(builder.make_lspec("p6-f4-p3-f1"), "e32s8o2")
-l4f6431_e32s4o2 = builder.make_datatype(builder.make_lspec("f6-f4-f3-f1"), "e32s4o2")
-l4p6431_e32s4o2 = builder.make_datatype(builder.make_lspec("p6-p4-p3-p1"), "e32s4o2")
-l4pf6431_e32s4o2 = builder.make_datatype(builder.make_lspec("p6-f4-p3-f1"), "e32s4o2")
-
-l8f_e32 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0"), "e32")
-l8p_e32 = builder.make_datatype(builder.make_lspec("p7-p6-p5-p4-p3-p2-p1-p0"), "e32")
-l8op_e32 = builder.make_datatype(builder.make_lspec("p7-p6-o25-p4-o33-p2-p1-p0"), "e32")
-l8of_e32 = builder.make_datatype(builder.make_lspec("f7-f6-o35-f4-o23-f2-f1-f0"), "e32")
-l8f_e32s8 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0"), "e32s8")
-l8p_e32s8 = builder.make_datatype(builder.make_lspec("p7-p6-p5-p4-p3-p2-p1-p0"), "e32s8")
-l8op_e32s8 = builder.make_datatype(builder.make_lspec("p7-p6-o25-p4-o33-p2-p1-p0"), "e32s8")
-l8of_e32s8 = builder.make_datatype(builder.make_lspec("f7-f6-o35-f4-o23-f2-f1-f0"), "e32s8")
-l8f_e32s4 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0"), "e32s4")
-l8p_e32s4 = builder.make_datatype(builder.make_lspec("p7-p6-p5-p4-p3-p2-p1-p0"), "e32s4")
-l8op_e32s4 = builder.make_datatype(builder.make_lspec("p7-p6-o25-p4-o33-p2-p1-p0"), "e32s4")
-l8of_e32s4 = builder.make_datatype(builder.make_lspec("f7-f6-o35-f4-o23-f2-f1-f0"), "e32s4")
-l8f_e32s8 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0"), "e32s8o2")
-l8p_e32s8 = builder.make_datatype(builder.make_lspec("p7-p6-p5-p4-p3-p2-p1-p0"), "e32s8o2")
-l8op_e32s8 = builder.make_datatype(builder.make_lspec("p7-p6-o25-p4-o33-p2-p1-p0"), "e32s8o2")
-l8of_e32s8 = builder.make_datatype(builder.make_lspec("f7-f6-o35-f4-o23-f2-f1-f0"), "e32s8o2")
-l8f_e32s4o2 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0"), "e32s4o2")
-l8p_e32s4o2 = builder.make_datatype(builder.make_lspec("p7-p6-p5-p4-p3-p2-p1-p0"), "e32s4o2")
-l8op_e32s4o2 = builder.make_datatype(builder.make_lspec("p7-p6-o25-p4-o33-p2-p1-p0"), "e32s4o2")
-l8of_e32s4o2 = builder.make_datatype(builder.make_lspec("f7-f6-o35-f4-o23-f2-f1-f0"), "e32s4o2")
-
-l16pf_e32 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0-p7-p6-p5-p4-p3-p2-p1-p0"), "e32")
-l16po_e32 = builder.make_datatype(builder.make_lspec("o37-o26-o35-o24-o33-o22-o31-o20-p7-p6-p5-p4-p3-p2-p1-p0"), "e32")
-l16pf_e32s8 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0-p7-p6-p5-p4-p3-p2-p1-p0"), "e32s8")
-l16po_e32s8 = builder.make_datatype(builder.make_lspec("o37-o26-o35-o24-o33-o22-o31-o20-p7-p6-p5-p4-p3-p2-p1-p0"), "e32s8")
-l16pf_e32s4 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0-p7-p6-p5-p4-p3-p2-p1-p0"), "e32s4")
-l16po_e32s4 = builder.make_datatype(builder.make_lspec("o37-o26-o35-o24-o33-o22-o31-o20-p7-p6-p5-p4-p3-p2-p1-p0"), "e32s4")
+# lookup table datatypes for tiles and subtiles; offsets are built in to lookups
+builder = LookupBuilder("e4m3fn", 4)
+# standard fp4 and int4, 4 bit index and 1 bit select
+l41f4i6_e32 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32")
+l41f4i6_e32s8 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32s8")
+l41f4i6_e32s4 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32s4")
+# modified fp4 and int4, 4 bit index and 1 bit select
+l41ef4ei6_e32 = builder.make_datatype(builder.make_lspec("ef4-ei6"), "e32")
+l41ef4ei6_e32s8 = builder.make_datatype(builder.make_lspec("ef4-ei6"), "e32s8")
+l41ef4ei6_e32s4 = builder.make_datatype(builder.make_lspec("ef4-ei6"), "e32s4")
+# standard fp4 and/or int4, shifted, 4 bit index and 2 bit select
+l42f6431_e32 = builder.make_datatype(builder.make_lspec("f6-f4-f3-f1"), "e32")
+l42f6431_e32s8 = builder.make_datatype(builder.make_lspec("f6-f4-f3-f1"), "e32s8")
+l42f6431_e32s4 = builder.make_datatype(builder.make_lspec("f6-f4-f3-f1"), "e32s4")
+l42f63i41_e32 = builder.make_datatype(builder.make_lspec("f6-i4-f3-i1"), "e32")
+l42f63i41_e32s8 = builder.make_datatype(builder.make_lspec("f6-i4-f3-i1"), "e32s8")
+l42f63i41_e32s4 = builder.make_datatype(builder.make_lspec("f6-i4-f3-i1"), "e32s4")
+# modified fp4 and/or int4, shifted, 4 bit index and 2 bit select
+l42ef7654_e32 = builder.make_datatype(builder.make_lspec("ef7-ef6-ef5-ef4"), "e32")
+l42ef7654_e32s8 = builder.make_datatype(builder.make_lspec("ef7-ef6-ef5-ef4"), "e32s8")
+l42ef7654_e32s8 = builder.make_datatype(builder.make_lspec("ef7-ef6-ef5-ef4"), "e32s4")
+l42ei76ef54_e32 = builder.make_datatype(builder.make_lspec("ei7-ei6-ef5-ef4"), "e32")
+l42ei76ef54_e32s8 = builder.make_datatype(builder.make_lspec("ei7-ei6-ef5-ef4"), "e32s8")
+l42ei76ef54_e32s4 = builder.make_datatype(builder.make_lspec("ei7-ei6-ef5-ef4"), "e32s4")
+# standard fp4 and/or int4, shifted, 4 bit index and 3 bit select
+l43f7654321_e32 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0"), "e32")
+l43f7654321_e32s8 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0"), "e32s8")
+l43f7654321_e32s4 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0"), "e32s4")
+l43f7531i6420_e32 = builder.make_datatype(builder.make_lspec("f7-i6-f5-i4-f3-i2-f1-i0"), "e32")
+l43f7531i6420_e32s8 = builder.make_datatype(builder.make_lspec("f7-i6-f5-i4-f3-i2-f1-i0"), "e32s8")
+l43f7531i6420_e32s4 = builder.make_datatype(builder.make_lspec("f7-i6-f5-i4-f3-i2-f1-i0"), "e32s4")
+# standard fp4 and/or int4, shifted and scaled, 4 bit index and 3 bit select
+l43f7654f64s12_e32 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f6s1-f4s1-f6s2-f4s2"), "e32")
+l43f7654f64s12_e32s8 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f6s1-f4s1-f6s2-f4s2"), "e32s8")
+l43f7654f64s12_e32s4 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f6s1-f4s1-f6s2-f4s2"), "e32s4")
+l43f7654f64s24_e32 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f6s2-f4s2-f6s4-f4s4"), "e32")
+l43f7654f64s24_e32s8 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f6s2-f4s2-f6s4-f4s4"), "e32s8")
+l43f7654f64s24_e32s4 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f6s2-f4s2-f6s4-f4s4"), "e32s4")
+l43f63i41s12_e32 = builder.make_datatype(builder.make_lspec("f6-i4-f3-i1-f6s1-i4s1-f3s2-i1s2"), "e32")
+l43f63i41s12_e32s8 = builder.make_datatype(builder.make_lspec("f6-i4-f3-i1-f6s1-i4s1-f3s2-i1s2"), "e32s8")
+l43f7654f64s12_e32s4 = builder.make_datatype(builder.make_lspec("f6-i4-f3-i1-f6s1-i4s1-f3s2-i1s2"), "e32s4")
+l43f7654f64s24_e32 = builder.make_datatype(builder.make_lspec("f6-i4-f3-i1-f6s1-i4s1-f3s4-i1s4"), "e32")
+l43f7654f64s24_e32s8 = builder.make_datatype(builder.make_lspec("f6-i4-f3-i1-f6s1-i4s1-f3s4-i1s4"), "e32s8")
+l43f7654f64s24_e32s4 = builder.make_datatype(builder.make_lspec("f6-i4-f3-i1-f6s1-i4s1-f3s4-i1s4"), "e32s4")
+# modified fp4 and/or int4, shifted and scaled, 4 bit index and 3 bit select
+l43ef7654ef64s12_e32 = builder.make_datatype(builder.make_lspec("ef7-ef6-ef5-ef4-ef6s1-ef4s1-ef6s2-ef4s2"), "e32")
+l43ef7654ef64s12_e32s8 = builder.make_datatype(builder.make_lspec("ef7-ef6-ef5-ef4-ef6s1-ef4s1-ef6s2-ef4s2"), "e32s8")
+l43ef7654ef64s12_e32s4 = builder.make_datatype(builder.make_lspec("ef7-ef6-ef5-ef4-ef6s1-ef4s1-ef6s2-ef4s2"), "e32s4")
+l43ef7654ef64s12_e32 = builder.make_datatype(builder.make_lspec("ef7-ef6-ef5-ef4-ef6s2-ef4s2-ef6s4-ef4s4"), "e32")
+l43ef7654ef64s12_e32s8 = builder.make_datatype(builder.make_lspec("ef7-ef6-ef5-ef4-ef6s2-ef4s2-ef6s4-ef4s4"), "e32s8")
+l43ef7654ef64s12_e32s4 = builder.make_datatype(builder.make_lspec("ef7-ef6-ef5-ef4-ef6s2-ef4s2-ef6s4-ef4s4"), "e32s4")
+# standard fp4 and int4, shifted, 4 bit index and 4 bit select
+l44fi_e32 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0-i7-i6-i5-i4-i3-i2-i1-i0"), "e32")
+l44fi_e32s8 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0-i7-i6-i5-i4-i3-i2-i1-i0"), "e32s8")
+l44fi_e32s4 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0-i7-i6-i5-i4-i3-i2-i1-i0"), "e32s4")
+# modified fp4 and int4, shifted and scaled, 4 bit index and 4 bit select
+l44efs123_e32s8 = builder.make_datatype(
+    builder.make_lspec("ef7-ef6-ef5-ef4-ef7s1-ef6s1-ef5s1-ef4s1-ef7s2-ef6s2-ef5s2-ef4s2-ef7s3-ef6s3-ef5s3-ef4s3"), "e32s8"
+)
+l44efs246_e32s8 = builder.make_datatype(
+    builder.make_lspec("ef7-ef6-ef5-ef4-ef7s2-ef6s2-ef5s2-ef4s2-ef7s4-ef6s4-ef5s4-ef4s4-ef7s6-ef6s6-ef5s6-ef4s6"), "e32s8"
+)
+l44efis123_e32s8 = builder.make_datatype(
+    builder.make_lspec("ef7-ef6-ef5-ef4-ei7-ei6-ei7s1-ei6s1-ef7s1-ef6s1-ef5s1-ef4s1-ei7s2-ei6s2-ei7s3-ei6s3"), "e32s8"
+)
+l44efis246_e32s8 = builder.make_datatype(
+    builder.make_lspec("ef7-ef6-ef5-ef4-ei7-ei6-ei7s2-ei6s2-ef7s1-ef6s1-ef5s1-ef4s1-ei7s4-ei6s4-ei7s6-ei6s6"), "e32s8"
+)
 
 del builder

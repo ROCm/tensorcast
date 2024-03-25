@@ -3,10 +3,27 @@
 
 from dataclasses import dataclass
 import re
+from typing import NamedTuple
 
 import torch
 
 from .number import NumberSpec
+
+
+class ScaleData(NamedTuple):
+    """Scale data tensors."""
+
+    scale: torch.Tensor = None
+    zero: torch.Tensor = None
+    lookup: torch.Tensor = None
+    offset: torch.Tensor = None
+
+
+class ScaledTensor(NamedTuple):
+    """Combined tensor and/or scaledata container."""
+
+    tensor: torch.Tensor = None
+    scaledata: ScaleData = None
 
 
 @dataclass

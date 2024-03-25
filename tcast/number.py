@@ -164,6 +164,13 @@ class NumberSpec:
             vals = self.midpoints
         return torch.tensor(vals, dtype=torch_dtype, device=device)
 
+    def mapname(self, index: int) -> str:
+        if not self.is_lookup:
+            raise RuntimeError("NumberSpec.mapname called for non-lookup number spec.")
+        if index is None or index >= len(self.mapnames):
+            raise ValueError(f"Lookup: getting lookup {index} when there are only {len(self.mapnames)}.")
+        return self.mapnames[index]
+
     def indices_from_vals(self, vals: list[float] | float, line: list[float] = None) -> list[int]:
         """Reverse search the number line to return indices."""
         if isinstance(vals, float):
@@ -182,27 +189,12 @@ class NumberSpec:
 
     def _decode(self, code: str | torch.dtype) -> None:
         """Sets fields based on input code string."""
-        # 0:  Handle lookup table specs, which are separated from the compute spec by an underscore.
-        if isinstance(code, str) and code.count("_") != 0 and not code.startswith("float8_"):
-            split = code.split("_")
-            lcode, ccode = split[0], "_".join(split[1:])
-            self._decode(ccode)
-            if m := re.fullmatch(r"l(\d)(\d)(.*)", lcode):
-                self.index_bits, self.lookup_bits, self.lookup_name = int(m.group(1)), int(m.group(2)), m.group(3)
-                self.lookup_table, self.midpoints, self.mapnames = [], [], []
-                return
-            raise ValueError(f"NumberSpec lookup code {code} is invalid.")
         # 1.  Handle the case of the spec defined by a torch.dtype
         if isinstance(code, torch.dtype):
             self.torch_dtype = code
             code = str(code)
-        code = code.lower().removeprefix("torch.")
-        if ttype := getattr(torch, code, False):
-            if self.torch_dtype is None and isinstance(ttype, torch.dtype):
-                self.torch_dtype = ttype
-        bias_hack = int(code.startswith("float8") and code.endswith("fnuz"))  # implicit non-standard bias for torch fnuz types
-        name = code = code.removeprefix("float8_")
-        # 2.  Check for implicitly scaled datatypes
+        name = code.lower().removeprefix("torch.")
+        # 2.  Check for common datatype names that are not number formats
         if name in MX2NUMSPEC:
             tilesize = 8 if name.startswith("bfp") else 32
             raise ValueError(
@@ -215,7 +207,36 @@ class NumberSpec:
                 f"\tNumberSpec: code '{name}' is a scaled datatype rather than a number format.\n"
                 f"\tMX types (a/k/a bfp prime) are not yet supported."
             )
-        # 3.  Handle float/bfloat/int/uint style string codes for widths > 8
+        # 3.  Check for instrisic non-standard bias
+        bias_hack = int(name.startswith("float8") and name.endswith("fnuz"))  # implicit non-standard bias for torch fnuz
+        name = name.removeprefix("float8_").removeprefix("float8")
+        # 4.  Handle lookup table specs, which are separated from the compute spec by an underscore.
+        if name.count("_") == 1:
+            lcode, ccode = name.split("_")
+            self._decode(ccode)
+            if m := re.fullmatch(r"l(\d)(\d)(.*)", lcode):
+                self.index_bits, self.lookup_bits, self.lookup_name = int(m.group(1)), int(m.group(2)), m.group(3)
+                self.lookup_table, self.midpoints, self.mapnames = [], [], []
+                return
+            raise ValueError(f"NumberSpec lookup code {code} is invalid.")
+        # 5.  Handle P3109-style string codes
+        if m := re.fullmatch(r"binary(\d+)(p\d)", name):
+            bits = int(m.group(1))
+            prec = int(m.group(2)[1:]) if m.group(2) else 0
+            if bits not in (8, 16, 32, 64):
+                raise ValueError(f"NumberSpec: code '{name}': binary formats must be 8, 16, 32, or 64 bits.")
+            if bits != 8:
+                if bits == 64:
+                    raise NotImplementedError(f"NumberSpec: code '{name}': 64-bit binary formats are not yet supported.")
+                if prec:
+                    raise ValueError(f"NumberSpec: code '{name}': precision is only supported for 8-bit binary formats.")
+                name = f"e8m{bits - 9}"
+            else:
+                if prec not in range(2, 7):
+                    raise ValueError(f"NumberSpec: code '{name}': precision must be in range [2, 6].")
+                ebits = 8 - prec
+                name = f"e{ebits}m{prec-1}b{2**(ebits-1)}fnuz"
+        # 6.  Handle float/bfloat/int/uint style string codes for widths > 8
         if m := re.fullmatch(r"(float|bfloat|int|uint)(\d+)", name):
             prefix, bits = m.group(1), int(m.group(2))
             if prefix == "bfloat":
@@ -231,7 +252,7 @@ class NumberSpec:
                 self.ebits, self.mbits, self.bias, self.signed, self.infnan = 0, bits, None, False, None
             else:
                 self.ebits, self.mbits, self.bias, self.infnan = 1, bits - 2, 1, "fnuz"
-        # 4.  Handle EMB stype string codes
+        # 7.  Handle EMB stype string codes
         if self.mbits is None:
             if m := re.fullmatch(r"e(\d+)m(\d+)(b\d+)?(fn|fnuz)?", name):
                 self.ebits, self.mbits, self.bias = int(m.group(1)), int(m.group(2)), m.group(3)
@@ -244,8 +265,7 @@ class NumberSpec:
         if self.ebits is None:
             raise ValueError(f"NumberSpec: code {code} is not a valid format.")
         self._name = name
-
-        # 5.  Fill in the remaining fields in the spec from ebits/mbits/signed/infnan
+        # 8.  Fill in the remaining fields in the spec from ebits/mbits/signed/infnan
         self.is_int = self.ebits == 1 and self.bias == 1 and self.signed and self.infnan == "fnuz"
         self.is_float = not self.is_int and self.signed and self.infnan is not None
         self.is_uint = self.bias is None and not self.signed and self.infnan is None
@@ -262,12 +282,17 @@ class NumberSpec:
             self.eps = 2**-self.mbits
             self.smallest_normal = 2**self.emin
             self.smallest_subnormal = self.smallest_normal * self.eps
-
-        # 6.  See if what we have matches a torch.dtype
+        # 9.  See if what we have matches a torch.dtype
         if self.torch_dtype is None:
             self.torch_dtype = self._find_torch_dtype()
 
     def _find_torch_dtype(self) -> torch.dtype | None:
+        if self.is_uint:
+            return torch.uint8 if self.bits == 8 else torch.uint16 if self.bits == 16 else torch.uint32
+        if self.is_int:
+            return torch.int8 if self.bits == 8 else torch.int16 if self.bits == 16 else torch.int32
+        if self.is_exponent and self.bits == 8:
+            return torch.uint8
         if self.bits == 32 and self.ebits == 8 and self.mbits == 23 and self.bias == 127 and self.infnan == "ieee":
             return torch.float32
         if self.bits == 16 and self.ebits == 5 and self.mbits == 10 and self.bias == 15 and self.infnan == "ieee":
