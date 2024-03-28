@@ -63,7 +63,11 @@ class ScaleSpec:
         if not self.is_tile:
             return tensor
         tensor = tensor.transpose(self.dim, -1)
-        return tensor.reshape(-1, self.tile if not (subtile and self.is_subtile) else self.subtile)
+        if subtile and self.is_subtile:
+            tensor = tensor.reshape(-1, self.tile // self.subtile, self.subtile)
+        else:
+            tensor = tensor.reshape(-1, self.tile)
+        return tensor
 
     def revert_tensor(self, tensor: torch.Tensor) -> torch.Tensor:
         """Revert tensor shape after scaling."""
