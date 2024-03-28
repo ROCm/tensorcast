@@ -85,14 +85,16 @@ class Cast:
             )
         else:
             maxexp = cls._safe_frexp(x).amax(dim=dim, keepdim=True) - 1 - dtype.nspec.emax
-            if dtype.nspec.ebits > 1 and cls.scalemode == "midmax":
+            if dtype.nspec.ebits > 1 and cls.scalemode in ["auto", "midmax"]:
                 maxexp[(x * (-maxexp).exp2()).abs().amax(dim=dim) > dtype.nspec.midmax] += 1
             if dtype.is_offset:
                 # reshape with subtile as last dim so we can do subtiled lookups or offsets or both
                 if not noreshape:
                     x = dtype.sspec.reshape_tensor(dtype.sspec.revert_tensor(x), True)
                 submaxexp = cls._safe_frexp(x).amax(dim=dim, keepdim=True) - 1 - dtype.nspec.emax
-                offset = (maxexp - submaxexp).clamp_max(maxexp - 2**dtype.sspec.offset - 1)
+                if dtype.nspec.ebits > 1 and cls.scalemode in ["auto", "midmax"]:
+                    submaxexp[(x * (-submaxexp).exp2()).abs().amax(dim=dim) > dtype.nspec.midmax] += 1
+                offset = (maxexp.unsqueeze(-1) - submaxexp).clamp_max(2**dtype.sspec.offset - 1)
             if dtype.sspec.scale.is_exponent:
                 # e8m0 is actual exponent + scale bias - nspec emax
                 maxexp += dtype.sspec.scale.bias
@@ -102,27 +104,29 @@ class Cast:
     @classmethod
     def _apply_scales(
         cls,
-        x: torch.Tensor,
+        tensor: torch.Tensor,
         dtype: DataType,
         scale: torch.Tensor,
         zero: torch.Tensor = None,
+        offset: torch.Tensor = None,
         lookup: int = None,
         noreshape: bool = False,
     ) -> torch.Tensor:
         """Given scales, return vcast tensor."""
         assert dtype and not dtype.is_unscaled
+        x = tensor.clone()
         if not dtype.is_tensor:
             if ret := cls._run_extension(x, dtype, "apply_scales", lookup=lookup) is not None:
                 return ret
             if not noreshape:
-                x = dtype.sspec.reshape_tensor(x, dtype.sspec.is_subtile)
+                x = dtype.sspec.reshape_tensor(x, dtype.sspec.is_offset and offset is not None)
         eps = torch.finfo(x.dtype).eps
         if hasattr(dtype.nspec, "is_lookup") and dtype.nspec.is_lookup:
             assert dtype.is_tile and lookup is not None and dtype.sspec.scale.is_exponent
             scale = (scale - dtype.sspec.scale.bias).exp2()
             tmap = dtype.nspec.get_mapping(lookup, torch_dtype=x.dtype, device=x.device)
             tmid = dtype.nspec.get_midpoints(lookup, torch_dtype=x.dtype, device=x.device)
-            t = x.div(scale)
+            t = x / scale
             out = torch.zeros_like(x)
             out[t <= tmid[0]] = tmap[0]
             for i in range(tmap.numel() - 1):
@@ -141,6 +145,8 @@ class Cast:
             x = cls._round(x / scale.clamp_min(eps)).clamp(dtype.nspec.minint, dtype.nspec.maxint) * scale
         else:
             assert dtype.sspec.scale.is_exponent
+            if offset is not None:
+                scale = scale.unsqueeze(-1) - offset
             scale = (scale - dtype.sspec.scale.bias).exp2()
             x /= scale  # scale x into range of the target dtype
             valexp = (cls._safe_frexp(x) - 1).clamp_min(dtype.nspec.emin)  # get the independent exponents, clipped to emin
@@ -148,21 +154,20 @@ class Cast:
             x = cls._round(x * rscale).div(rscale).clamp(-dtype.nspec.maxfloat, dtype.nspec.maxfloat) * scale
         if not (dtype.is_tensor or noreshape):
             x = dtype.sspec.revert_tensor(x)
-        return x
+        return x.to(tensor.dtype)
 
     @classmethod
-    def _vcast(cls, x: torch.Tensor, dtype: DataType) -> ScaledTensor:
+    def _vcast(cls, tensor: torch.Tensor, dtype: DataType) -> ScaledTensor:
         """Virtual cast."""
-        if ret := cls._run_extension(x, dtype, "vcast"):
+        if ret := cls._run_extension(tensor, dtype, "vcast"):
             return ret
-        xtype, x = x.dtype, x.clone()
+        xtype, x = tensor.dtype, tensor.clone()
         if dtype.is_unscaled:
-            scale = zero = None
-            tensor = cls._cast_unscaled(x, dtype.nspec).to(xtype)
+            q = cls._cast_unscaled(x, dtype.nspec).to(xtype)
         else:
-            scale, zero = cls._get_scales(x, dtype)
-            tensor = cls._apply_scales(x, dtype, scale, zero)
-        return ScaledTensor(tensor=tensor, scale=scale, zero=zero)
+            sd = cls._get_scales(x, dtype)
+            q = cls._apply_scales(x, dtype, sd.scale, sd.zero, sd.offset).to(xtype)
+        return ScaledTensor(tensor=q, scaledata=ScaleData(scale=sd.scale, zero=sd.zero, offset=sd.offset))
 
     @classmethod
     def _vcast_lookup(cls, x: torch.Tensor, dtype: DataType, better: Callable = None) -> ScaledTensor:
@@ -172,22 +177,25 @@ class Cast:
             return torch.linalg.vector_norm(q1 - f, dim=-1) < torch.linalg.vector_norm(q2 - f, dim=-1)
 
         assert dtype.is_tile and dtype.nspec.is_lookup and dtype.sspec.scale.is_exponent
+        xtype = x.dtype
         for i in range(dtype.nspec.num_mappings):
             if i == 0:
-                scale, _ = cls._get_scales(x, dtype)
+                scale = cls._get_scales(x, dtype).scale
                 x = dtype.sspec.reshape_tensor(x, dtype.sspec.is_subtile)
-                select = torch.zeros(x.shape[0], dtype=torch.int8, device=x.device)
+                if dtype.sspec.is_subtile:
+                    scale = scale.unsqueeze(-1)
                 q = cls._apply_scales(x, dtype, scale, None, lookup=i, noreshape=True)
                 out = q.clone()
+                select = torch.zeros(q.shape[:-1], dtype=torch.int8, device=x.device)
             else:
-                if not dtype.sspec.subtile:
-                    scale, _ = cls._get_scales(x, dtype, noreshape=True)
+                if not dtype.is_subtile:
+                    scale = cls._get_scales(x, dtype, noreshape=True).scale
                 q = cls._apply_scales(x, dtype, scale, None, lookup=i, noreshape=True)
                 choice = better(q, out, x) if better else _better(q, out, x)
                 select[choice] = i
                 out[choice] = q[choice]
-        out = dtype.sspec.revert_tensor(out)
-        return ScaledTensor(tensor=out, lookup=select)
+        out = dtype.sspec.revert_tensor(out).to(xtype)
+        return ScaledTensor(tensor=out, scaledata=ScaleData(lookup=select))
 
     @classmethod
     def sparse(cls, tensor: torch.Tensor, stile: int, dense: int, dim: int = -1) -> torch.Tensor:
@@ -237,8 +245,8 @@ class Cast:
         if castmode == "prescaled":
             stensor = ScaledTensor(tensor=cls._apply_scales(x, dtype, scaledata.scale, scaledata.zero))
         elif castmode == "scale":
-            scale, zero = cls._get_scales(x, dtype)
-            stensor = ScaledTensor(scaledata=ScaleData(scale=scale, zero=zero))
+            sd = cls._get_scales(x, dtype)
+            stensor = ScaledTensor(scaledata=sd)
         elif dtype.is_lookup:
             stensor = cls._vcast_lookup(x, dtype, better)
         else:
