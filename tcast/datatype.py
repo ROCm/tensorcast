@@ -78,16 +78,17 @@ class DataType:
                 return (scale_bits * tensor.numel() / csize + self.nspec.bits * tensor.numel()) / tensor.numel()
             # at this point, we have 2D scale with one dimension being a channel
             csize = tensor.size(self.sspec.dim if self.sspec.tile == 0 else self.sspec.dim2)
-            num_tiles = tensor.numel() / csize / tensor.size(self.sspec.dim if self.sspec.tile != 0 else self.sspec.dim2)
+            num_tiles = tensor.numel() // csize / tensor.size(self.sspec.dim if self.sspec.tile != 0 else self.sspec.dim2)
             return (num_tiles * scale_bits + tensor.numel()) / tensor.numel()
         tsize = self.sspec.tile * (self.sspec.tile2 if self.is_2d else 1)
         ssize = (self.sspec.subtile * (self.sspec.subtile2 if self.is_2d else 1)) if self.is_subtile else tsize
-        subtiles_per_tile = tsize / ssize
+        subtiles_per_tile = tsize // ssize
         value_bits = tsize * (self.nspec.index_bits if self.is_lookup else self.nspec.bits)
         meta_bits = scale_bits
         if self.is_lookup:
             meta_bits += self.nspec.lookup_bits * subtiles_per_tile
         if self.is_offset:
+            assert not self.is_lookup
             meta_bits += self.sspec.offset * subtiles_per_tile
         return (meta_bits + value_bits) / tsize
 
