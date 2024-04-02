@@ -4,6 +4,7 @@
 from collections.abc import Callable
 from typing import ClassVar, Literal
 
+# import pydevd
 import torch
 
 from .datatype import DataType
@@ -13,7 +14,7 @@ from .scale import ScaleData, ScaledTensor
 from .utils import check_literal
 
 RoundMode = Literal["even", "away", "zero", "stochastic", "nearest"]  # "nearest" is an alias for "away"
-ScaleMode = Literal["max", "midmax", "auto"] # "auto" is an alias for "midmax"
+ScaleMode = Literal["max", "midmax", "auto"]  # "auto" is an alias for "midmax"
 CastMode = Literal["virtual", "prescaled", "scale"]
 ComputeMode = Literal["cpu", "gpu", "torch"]
 
@@ -109,7 +110,8 @@ class Cast:
         scale: torch.Tensor,
         zero: torch.Tensor = None,
         offset: torch.Tensor = None,
-        lookup: int = None,
+        lookup: torch.Tensor = None,
+        select: int = None,
         noreshape: bool = False,
     ) -> torch.Tensor:
         """Given scales, return vcast tensor."""
@@ -119,22 +121,44 @@ class Cast:
             if ret := cls._run_extension(x, dtype, "apply_scales", lookup=lookup) is not None:
                 return ret
             if not noreshape:
-                x = dtype.sspec.reshape_tensor(x, dtype.sspec.is_offset and offset is not None)
+                x = dtype.sspec.reshape_tensor(x, dtype.is_offset and offset is not None)
         eps = torch.finfo(x.dtype).eps
-        if hasattr(dtype.nspec, "is_lookup") and dtype.nspec.is_lookup:
-            assert dtype.is_tile and lookup is not None and dtype.sspec.scale.is_exponent
+        if dtype.is_lookup:
+            assert dtype.is_tile and (lookup is not None or select is not None) and dtype.sspec.scale.is_exponent
             scale = (scale - dtype.sspec.scale.bias).exp2()
-            tmap = dtype.nspec.get_mapping(lookup, torch_dtype=x.dtype, device=x.device)
-            tmid = dtype.nspec.get_midpoints(lookup, torch_dtype=x.dtype, device=x.device)
-            t = x / scale
+            tmap = dtype.nspec.get_mapping(select, pos_only=True, torch_dtype=x.dtype, device=x.device)
+            tmid = dtype.nspec.get_midpoints(select, pos_only=True, torch_dtype=x.dtype, device=x.device)
+            t = x / scale  # scale x into range of the compute dtype, which is where the lookups are
             out = torch.zeros_like(x)
-            out[t <= tmid[0]] = tmap[0]
-            for i in range(tmap.numel() - 1):
-                if tmid[i] < 0:
-                    out[t > tmid[i]] = tmap[i + 1]
-                else:
-                    out[t >= tmid[i]] = tmap[i + 1]
-            x = out.clamp(min=tmap[0], max=tmap[-1]) * scale
+            if select is None:
+                # pydevd.settrace(suspend=True, trace_only_current_thread=True)
+
+                # t is [-1, tile//subtile, subtile] and lookup is [-1, tile//subtile]
+                tmap = tmap[lookup]  # shape is [-1, tile//subtile, 1, 16]
+                tmid = tmid[lookup]  # shape is [-1, tile//subtile, 1, 15]
+                out = t.maximum(tmap.unsqueeze(-2)[..., 0]).minimum(tmap.unsqueeze(-2)[..., -1])
+                # TODO(ericd) this assumes symmetric mappings, which is not always going to be the case
+                for j in range(t.shape[-1]):
+                    out[:, j] = torch.where(t[:, j] <= tmid[:, 0], tmap[:, 0], out[:, j])
+                    for i in range(tmap.shape[-1] - 1):
+                        if i < tmap.shape[-1] // 2:
+                            out[:, j] = torch.where(t[:, j] > tmid[:, i], tmap[:, i+1], out[:, j])
+                        else:
+                            out[:, j] = torch.where(t[:, j] >= tmid[:, i], tmap[:, i+1], out[:, j])
+                        # if tmid[j, i] < 0:
+                        #     out[t[j] > tmid[j, i]] = tmap[j, i + 1]
+                        # else:
+                        #     out[t[j] >= tmid[j, i]] = tmap[j, i + 1]
+                    # out[(t < 0).logical_and(t > tmid[..., i])] = tmap[..., i + 1]
+                    # out[(t >= 0).logical_and(t >= tmid[..., i])] = tmap[..., i + 1]
+            else:
+                out[t <= tmid[0]] = tmap[0]
+                for i in range(tmap.shape[-1] - 1):
+                    if tmid[i] < 0:
+                        out[t > tmid[i]] = tmap[i + 1]
+                    else:
+                        out[t >= tmid[i]] = tmap[i + 1]
+            x = out * scale
         elif dtype.nspec.is_uint:
             assert not dtype.sspec.is_subtile
             if dtype.sspec.zero.is_float:
@@ -184,18 +208,18 @@ class Cast:
                 x = dtype.sspec.reshape_tensor(x, dtype.sspec.is_subtile)
                 if dtype.sspec.is_subtile:
                     scale = scale.unsqueeze(-1)
-                q = cls._apply_scales(x, dtype, scale, None, lookup=i, noreshape=True)
+                q = cls._apply_scales(x, dtype, scale, None, select=i, noreshape=True)
                 out = q.clone()
-                select = torch.zeros(q.shape[:-1], dtype=torch.int8, device=x.device)
+                lookup = torch.zeros(q.shape[:-1], dtype=torch.int8, device=x.device)
             else:
                 if not dtype.is_subtile:
                     scale = cls._get_scales(x, dtype, noreshape=True).scale
-                q = cls._apply_scales(x, dtype, scale, None, lookup=i, noreshape=True)
+                q = cls._apply_scales(x, dtype, scale, None, select=i, noreshape=True)
                 choice = better(q, out, x) if better else _better(q, out, x)
-                select[choice] = i
+                lookup[choice] = i
                 out[choice] = q[choice]
         out = dtype.sspec.revert_tensor(out).to(xtype)
-        return ScaledTensor(tensor=out, scaledata=ScaleData(lookup=select))
+        return ScaledTensor(tensor=out, scaledata=ScaleData(lookup=lookup))
 
     @classmethod
     def sparse(cls, tensor: torch.Tensor, stile: int, dense: int, dim: int = -1) -> torch.Tensor:
@@ -215,6 +239,7 @@ class Cast:
         return t.masked_fill_(mask, 0.0).reshape(tshape).transpose(dim, -1)
 
     @classmethod
+    @torch.inference_mode
     def cast(
         cls,
         x: torch.Tensor,
@@ -225,6 +250,8 @@ class Cast:
         compmode: ComputeMode = None,
         scaledata: ScaleData = None,
         better: Callable = None,
+        select: int = None,
+        noreshape: bool = False,
     ) -> ScaledTensor:
         """
         Generic cast interface.
@@ -233,7 +260,7 @@ class Cast:
         ScaleData is a named tuple of scale factors and zero points for use with the "scale" mode.
         better is a function for lookup types to determine which lookup is better by some metric.
         returns a ScaledTensor with the cast tensor and the calculated scale factors and other metadata.
-        """ # noqa: D200, D212
+        """  # noqa: D200, D212
         check_literal(castmode, CastMode)
         check_literal(roundmode, RoundMode, True)
         check_literal(scalemode, ScaleMode, True)
@@ -243,9 +270,12 @@ class Cast:
         cls.scalemode = scalemode if scalemode else savescale
         cls.compmode = compmode if compmode else savecomp
         if castmode == "prescaled":
-            stensor = ScaledTensor(tensor=cls._apply_scales(x, dtype, scaledata.scale, scaledata.zero))
+            stensor = ScaledTensor(
+                tensor=cls._apply_scales(x, dtype, scaledata.scale, scaledata.zero, lookup=scaledata.lookup, select=select),
+                scaledata=scaledata
+            )
         elif castmode == "scale":
-            sd = cls._get_scales(x, dtype)
+            sd = cls._get_scales(x, dtype, noreshape=noreshape)
             stensor = ScaledTensor(scaledata=sd)
         elif dtype.is_lookup:
             stensor = cls._vcast_lookup(x, dtype, better)
