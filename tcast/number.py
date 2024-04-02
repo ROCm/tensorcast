@@ -6,6 +6,7 @@ import re
 from typing import Literal
 
 import torch
+from typing_extensions import Self
 
 from .utils import is_float8_available, is_float8_fnuz_available
 
@@ -57,6 +58,9 @@ class NumberSpec:
     mapnames: list[str] = None
     index_bits: int = None
     lookup_bits: int = None
+    offset_bits: int = None
+    mantissa_bits: int = None
+    implicit_spec: Self = None
     _number_line: list[float] = None
 
     def __init__(self, code: str | torch.dtype):
@@ -109,6 +113,12 @@ class NumberSpec:
     def num_values(self) -> int:
         return 2**self.index_bits if self.is_lookup else 0
 
+    @property
+    def max_lookup(self) -> float:
+        if self.is_lookup:
+            return max([mapping[-1] for mapping in self.lookup_table])
+        return self.max
+
     def get_number_line(self) -> list[float]:
         """All possible values for this number specification."""
         if not self._number_line:
@@ -137,7 +147,7 @@ class NumberSpec:
         self.mapnames.append(mapname)
 
     def get_mapping(
-        self, index: int = None, torch_dtype: torch.dtype = torch.float32, device: torch.device = "cuda"
+        self, index: int = None, pos_only: bool = False, torch_dtype: torch.dtype = torch.float32, device: torch.device = "cuda"
     ) -> torch.Tensor:
         """Return one or all of the lookups as a tensor."""
         if not self.is_lookup:
@@ -145,13 +155,13 @@ class NumberSpec:
         if index is not None:
             if index >= len(self.lookup_table):
                 raise ValueError(f"Lookup: getting mapping {index} when there are only {len(self.lookup_table)}.")
-            vals = self.lookup_table[index]
+            vals = [i for i in self.lookup_table if i > 0.0] if pos_only else self.lookup_table[index]
         else:
-            vals = self.lookup_table
+            vals = [[i[j] for j in i if i[j] >= 0] for i in self.lookup_table] if pos_only else self.lookup_table
         return torch.tensor(vals, dtype=torch_dtype, device=device)
 
     def get_midpoints(
-        self, index: int = None, torch_dtype: torch.dtype = torch.float32, device: torch.device = "cuda"
+        self, index: int = None, pos_only: bool = False, torch_dtype: torch.dtype = torch.float32, device: torch.device = "cuda"
     ) -> torch.Tensor:
         """Return one or all of the midpoint vectors as a tensor."""
         if not self.is_lookup:
@@ -159,9 +169,9 @@ class NumberSpec:
         if index is not None:
             if index >= len(self.midpoints):
                 raise ValueError(f"Lookup: getting lookup {index} when there are only {len(self.midpoints)}.")
-            vals = self.midpoints[index]
+            vals = [i for i in self.midpoints if i > 0.0] if pos_only else self.midpoints[index]
         else:
-            vals = self.midpoints
+            vals = [[i[j] for j in i if i[j] >= 0] for i in self.midpoints] if pos_only else self.midpoints
         return torch.tensor(vals, dtype=torch_dtype, device=device)
 
     def mapname(self, index: int) -> str:
@@ -210,7 +220,7 @@ class NumberSpec:
         # 3.  Check for instrisic non-standard bias
         bias_hack = int(name.startswith("float8") and name.endswith("fnuz"))  # implicit non-standard bias for torch fnuz
         name = name.removeprefix("float8_").removeprefix("float8")
-        # 4.  Handle lookup table specs, which are separated from the compute spec by an underscore.
+        # 4a.  Handle lookup table specs, which are separated from the compute spec by an underscore.
         if name.count("_") == 1:
             lcode, ccode = name.split("_")
             self._decode(ccode)
@@ -219,6 +229,17 @@ class NumberSpec:
                 self.lookup_table, self.midpoints, self.mapnames = [], [], []
                 return
             raise ValueError(f"NumberSpec lookup code {code} is invalid.")
+        # 4b.  Handle implicit table specs, which are separated from the implicit spec and compute spec by underscores.
+        elif name.count("_") == 2:
+            icode, scode, ccode = name.split("_")
+            self._decode(ccode)
+            self.implicit_spec = NumberSpec(scode)
+            if m := re.fullmatch(r"i(\d)(\d)(\d)(.*)", icode):
+                self.index_bits, self.mantissa_bits, self.shift_bits = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                self.lookup_name = m.group(4)
+                self.lookup_table, self.midpoints, self.mapnames = [], [], []
+                self._populate_implicit()
+                return
         # 5.  Handle P3109-style string codes
         if m := re.fullmatch(r"binary(\d+)(p\d)", name):
             bits = int(m.group(1))
@@ -285,6 +306,25 @@ class NumberSpec:
         # 9.  See if what we have matches a torch.dtype
         if self.torch_dtype is None:
             self.torch_dtype = self._find_torch_dtype()
+
+    def _populate_implicit(self) -> None:
+        """Populate the fields of the implicit spec."""
+        iline = [i * 2 ** (self.emax - self.implicit_spec.emax) for i in self.implicit_spec.get_number_line() if i > 0.0]
+        cline = [0.0] + [i for i in self.get_number_line() if i > 0.0]
+        indices = self.indices_from_vals(iline, cline)
+        indices = [i - (indices[-1] % 2**self.mbits) for i in indices]
+        for shift in range(2**self.shift_bits):
+            sidx = [i - 2**self.mbits * shift for i in indices]
+            for mantissa in range(2**self.mantissa_bits):
+                midx = [0] + [i + mantissa * 2**(self.mbits-self.mantissa_bits) for i in sidx]
+                print(midx)
+                vals = self.vals_from_indices(midx, cline)
+                vals = [-i for i in reversed(vals)] + vals
+                self.lookup_table.append(vals)
+                vals = [(vals[i] + vals[i+1]) / 2.0 for i in range(len(vals) - 1)]
+                vals = [-i for i in reversed(vals)] + vals
+                self.midpoints.append(vals)
+                self.mapnames.append(f"m{mantissa}_s{shift}" if shift else f"m{mantissa}")
 
     def _find_torch_dtype(self) -> torch.dtype | None:
         if self.is_uint:
