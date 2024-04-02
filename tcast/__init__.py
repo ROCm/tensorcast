@@ -82,16 +82,25 @@ def cast(
     scalemode: ScaleMode = None,
     compmode: ComputeMode = None,
     better: Callable = None,
+    select: int = None,
+    noreshape: bool = False,
 ) -> ScaledTensor:
     """Virtual cast a tensor to a scaled or unscaled datatype, possibly prescaled, or just find the scales."""
-    return Cast.cast(x, dtype, castmode, roundmode, scalemode, compmode, scaledata, better=better)
+    return Cast.cast(
+        x, dtype, castmode, roundmode, scalemode, compmode, scaledata, better=better, select=select, noreshape=noreshape
+    )
 
 
 def get_scales(
-    x: torch.Tensor, dtype: DataType, roundmode: RoundMode = None, scalemode: ScaleMode = None, compmode: ComputeMode = None
+    x: torch.Tensor,
+    dtype: DataType,
+    roundmode: RoundMode = None,
+    scalemode: ScaleMode = None,
+    compmode: ComputeMode = None,
+    noreshape: bool = False,
 ) -> ScaleData:
     """Find the scales for this tensor and dtype."""
-    return cast(x, dtype, "scale", None, roundmode, scalemode, compmode).scaledata
+    return cast(x, dtype, "scale", None, roundmode, scalemode, compmode, noreshape=noreshape).scaledata
 
 
 def vcast(
@@ -212,7 +221,9 @@ e2m1_e32s4o2 = DataType("e2m1fnuz", "e8m0_t32s4o2", "e2m1_e32s4o2")
 # lookup table datatypes for tiles and subtiles; offsets are built in to lookups
 builder = LookupBuilder("e4m3fn", 4)
 # standard fp4 and int4, 4 bit index and 1 bit select
-l41f4f4_e32 = builder.make_datatype(builder.make_lspec("f4-f4"), "e32") # dummy to compare lookup mxfp4 with non-lookup mxfp4
+l41f4f4_e32 = builder.make_datatype(builder.make_lspec("f4-f4"), "e32")  # dummy to compare lookup mxfp4 with non-lookup mxfp4
+l41f6f6_e32 = builder.make_datatype(builder.make_lspec("f6-f6"), "e32")  # dummy to compare lookup mxfp4 with non-lookup mxfp4
+l41f6i6_e32 = builder.make_datatype(builder.make_lspec("f6-i6"), "e32")
 l41f4i6_e32 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32")
 l41f4i6_e32s8 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32s8")
 l41f4i6_e32s4 = builder.make_datatype(builder.make_lspec("f4-i6"), "e32s4")
@@ -236,6 +247,11 @@ l42f7531_e32s4 = builder.make_datatype(builder.make_lspec("f7-f5-f3-f1"), "e32s4
 l43f_e32 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0"), "e32")
 l43f_e32s8 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0"), "e32s8")
 l43f_e32s4 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f3-f2-f1-f0"), "e32s4")
+
+l42fis_e32s8 = builder.make_datatype(builder.make_lspec("f4-i6-f4s1-i6s1"), "e32s8")
+l42fis_e32s4 = builder.make_datatype(builder.make_lspec("f4-i6-f4s1-i6s1"), "e32s4")
+l43fis_e32s8 = builder.make_datatype(builder.make_lspec("f4-i6-f4s1-i6s1-f4s2-i6s2-f4s3-i6s3"), "e32s8")
+l43fis_e32s4 = builder.make_datatype(builder.make_lspec("f4-i6-f4s1-i6s1-f4s2-i6s2-f4s3-i6s3"), "e32s4")
 
 # standard fp4 and/or int4, shifted and scaled, 4 bit index and 3 bit select
 l43f7654f64s12_e32s8 = builder.make_datatype(builder.make_lspec("f7-f6-f5-f4-f6s1-f4s1-f6s2-f4s2"), "e32s8")
