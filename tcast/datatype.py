@@ -86,7 +86,7 @@ class DataType:
         value_bits = tsize * (self.nspec.index_bits if self.is_lookup else self.nspec.bits)
         meta_bits = scale_bits
         if self.is_lookup:
-            meta_bits += self.nspec.lookup_bits * subtiles_per_tile
+            meta_bits += (self.nspec.lookup_bits + self.nspec.implicit_bit) * subtiles_per_tile
         if self.is_offset:
             assert not self.is_lookup
             meta_bits += self.sspec.offset * subtiles_per_tile
