@@ -4,7 +4,6 @@
 from collections.abc import Callable
 from typing import ClassVar, Literal
 
-# import pydevd
 import torch
 
 from .datatype import DataType
@@ -130,35 +129,19 @@ class Cast:
             tmid = dtype.nspec.get_midpoints(select, pos_only=True, torch_dtype=x.dtype, device=x.device)
             t = x / scale  # scale x into range of the compute dtype, which is where the lookups are
             out = torch.zeros_like(x)
+            tabs = t.abs()
             if select is None:
-                # pydevd.settrace(suspend=True, trace_only_current_thread=True)
-
                 # t is [-1, tile//subtile, subtile] and lookup is [-1, tile//subtile]
-                tmap = tmap[lookup]  # shape is [-1, tile//subtile, 1, 16]
-                tmid = tmid[lookup]  # shape is [-1, tile//subtile, 1, 15]
-                out = t.maximum(tmap.unsqueeze(-2)[..., 0]).minimum(tmap.unsqueeze(-2)[..., -1])
-                # TODO(ericd) this assumes symmetric mappings, which is not always going to be the case
-                for j in range(t.shape[-1]):
-                    out[:, j] = torch.where(t[:, j] <= tmid[:, 0], tmap[:, 0], out[:, j])
-                    for i in range(tmap.shape[-1] - 1):
-                        if i < tmap.shape[-1] // 2:
-                            out[:, j] = torch.where(t[:, j] > tmid[:, i], tmap[:, i+1], out[:, j])
-                        else:
-                            out[:, j] = torch.where(t[:, j] >= tmid[:, i], tmap[:, i+1], out[:, j])
-                        # if tmid[j, i] < 0:
-                        #     out[t[j] > tmid[j, i]] = tmap[j, i + 1]
-                        # else:
-                        #     out[t[j] >= tmid[j, i]] = tmap[j, i + 1]
-                    # out[(t < 0).logical_and(t > tmid[..., i])] = tmap[..., i + 1]
-                    # out[(t >= 0).logical_and(t >= tmid[..., i])] = tmap[..., i + 1]
+                tmap = tmap[lookup].unsqueeze(-2)
+                tmid = tmid[lookup].unsqueeze(-2)
+                out = torch.where(tabs <= tmid[..., 0], tmap[..., 0], out)
+                for i in range(tmap.shape[-1]):
+                    out = torch.where(tabs >= tmid[..., i], tmap[..., i], out)
             else:
-                out[t <= tmid[0]] = tmap[0]
-                for i in range(tmap.shape[-1] - 1):
-                    if tmid[i] < 0:
-                        out[t > tmid[i]] = tmap[i + 1]
-                    else:
-                        out[t >= tmid[i]] = tmap[i + 1]
-            x = out * scale
+                out[tabs < tmid[0]] = 0.0
+                for i in range(tmap.shape[-1]):
+                    out[tabs >= tmid[i]] = tmap[i]
+            x = out * t.sign() * scale
         elif dtype.nspec.is_uint:
             assert not dtype.sspec.is_subtile
             if dtype.sspec.zero.is_float:
@@ -272,7 +255,7 @@ class Cast:
         if castmode == "prescaled":
             stensor = ScaledTensor(
                 tensor=cls._apply_scales(x, dtype, scaledata.scale, scaledata.zero, lookup=scaledata.lookup, select=select),
-                scaledata=scaledata
+                scaledata=scaledata,
             )
         elif castmode == "scale":
             sd = cls._get_scales(x, dtype, noreshape=noreshape)
