@@ -10,7 +10,7 @@ from typing_extensions import Self
 
 from .utils import is_float8_available, is_float8_fnuz_available
 
-InfNan = Literal["ieee", "fn", "fnuz"]
+InfNan = Literal["ieee", "fn", "fnuz", "inuz"]
 
 MX2NUMSPEC = dict(
     mxfp8e5="e5m2",
@@ -59,8 +59,8 @@ class NumberSpec:
     index_bits: int = None
     lookup_bits: int = None
     offset_bits: int = None
-    mantissa_bits: int = None
-    implicit_spec: Self = None
+    implicit_specs: list[Self] = None
+    implicit_bit: int = 0
     _number_line: list[float] = None
 
     def __init__(self, code: str | torch.dtype):
@@ -103,7 +103,7 @@ class NumberSpec:
 
     @property
     def num_mappings(self) -> int:
-        return 2**self.lookup_bits if self.is_lookup else 0
+        return 2 ** (self.lookup_bits + self.implicit_bit) if self.is_lookup else 0
 
     @property
     def current_mappings(self) -> int:
@@ -155,9 +155,9 @@ class NumberSpec:
         if index is not None:
             if index >= len(self.lookup_table):
                 raise ValueError(f"Lookup: getting mapping {index} when there are only {len(self.lookup_table)}.")
-            vals = [i for i in self.lookup_table if i > 0.0] if pos_only else self.lookup_table[index]
+            vals = [i for i in self.lookup_table[index] if i > 0.0] if pos_only else self.lookup_table[index]
         else:
-            vals = [[i[j] for j in i if i[j] >= 0] for i in self.lookup_table] if pos_only else self.lookup_table
+            vals = [[i[j] for j in range(len(i)) if i[j] > 0.0] for i in self.lookup_table] if pos_only else self.lookup_table
         return torch.tensor(vals, dtype=torch_dtype, device=device)
 
     def get_midpoints(
@@ -169,9 +169,9 @@ class NumberSpec:
         if index is not None:
             if index >= len(self.midpoints):
                 raise ValueError(f"Lookup: getting lookup {index} when there are only {len(self.midpoints)}.")
-            vals = [i for i in self.midpoints if i > 0.0] if pos_only else self.midpoints[index]
+            vals = [i for i in self.midpoints[index] if i > 0.0] if pos_only else self.midpoints[index]
         else:
-            vals = [[i[j] for j in i if i[j] >= 0] for i in self.midpoints] if pos_only else self.midpoints
+            vals = [[i[j] for j in range(len(i)) if i[j] > 0.0] for i in self.midpoints] if pos_only else self.midpoints
         return torch.tensor(vals, dtype=torch_dtype, device=device)
 
     def mapname(self, index: int) -> str:
@@ -230,13 +230,18 @@ class NumberSpec:
                 return
             raise ValueError(f"NumberSpec lookup code {code} is invalid.")
         # 4b.  Handle implicit table specs, which are separated from the implicit spec and compute spec by underscores.
-        elif name.count("_") == 2:
-            icode, scode, ccode = name.split("_")
+        elif name.startswith("ilt_"):
+            _, icode, ccode = name.split("_")
             self._decode(ccode)
-            self.implicit_spec = NumberSpec(scode)
-            if m := re.fullmatch(r"i(\d)(\d)(\d)(.*)", icode):
-                self.index_bits, self.mantissa_bits, self.shift_bits = int(m.group(1)), int(m.group(2)), int(m.group(3))
-                self.lookup_name = m.group(4)
+            if m := re.fullmatch(r"(f|fi|i)(\d)(\d)", icode):
+                t, self.index_bits, self.lookup_bits = m.group(1), int(m.group(2)), int(m.group(3))
+                self.implicit_specs = []
+                if "f" in t:
+                    self.implicit_specs.append(NumberSpec("e2m1fnuz"))
+                if "i" in t:
+                    self.implicit_specs.append(NumberSpec("e1m2b1fnuz"))
+                self.lookup_name = f"ilt_{icode}"
+                self.implicit_bit = int(len(self.implicit_specs) > 1)
                 self.lookup_table, self.midpoints, self.mapnames = [], [], []
                 self._populate_implicit()
                 return
@@ -256,7 +261,7 @@ class NumberSpec:
                 if prec not in range(2, 7):
                     raise ValueError(f"NumberSpec: code '{name}': precision must be in range [2, 6].")
                 ebits = 8 - prec
-                name = f"e{ebits}m{prec-1}b{2**(ebits-1)}fnuz"
+                name = f"e{ebits}m{prec-1}b{2**(ebits-1)}inuz"
         # 6.  Handle float/bfloat/int/uint style string codes for widths > 8
         if m := re.fullmatch(r"(float|bfloat|int|uint)(\d+)", name):
             prefix, bits = m.group(1), int(m.group(2))
@@ -275,7 +280,7 @@ class NumberSpec:
                 self.ebits, self.mbits, self.bias, self.infnan = 1, bits - 2, 1, "fnuz"
         # 7.  Handle EMB stype string codes
         if self.mbits is None:
-            if m := re.fullmatch(r"e(\d+)m(\d+)(b\d+)?(fn|fnuz)?", name):
+            if m := re.fullmatch(r"e(\d+)m(\d+)(b\d+)?(fn|fnuz|inuz)?", name):
                 self.ebits, self.mbits, self.bias = int(m.group(1)), int(m.group(2)), m.group(3)
                 self.infnan = m.group(4) or "ieee"
                 self.signed = not (self.infnan == "ieee" and self.mbits == 0)
@@ -298,7 +303,7 @@ class NumberSpec:
         if self.is_float or self.is_int:
             self.emax = 2**self.ebits - 1 - self.bias - int(self.infnan == "ieee")
             self.emin = 1 - self.bias
-            self.maxfloat = 2**self.emax * (2.0 - (1 + int(self.infnan == "fn")) * 2 ** (-self.mbits))
+            self.maxfloat = 2**self.emax * (2.0 - (1 + int(self.infnan in ["fn", "inuz"])) * 2 ** (-self.mbits))
             self.midmax = (2 ** (self.emax + 1) - self.maxfloat) / 2.0 + self.maxfloat
             self.eps = 2**-self.mbits
             self.smallest_normal = 2**self.emin
@@ -309,22 +314,27 @@ class NumberSpec:
 
     def _populate_implicit(self) -> None:
         """Populate the fields of the implicit spec."""
-        iline = [i * 2 ** (self.emax - self.implicit_spec.emax) for i in self.implicit_spec.get_number_line() if i > 0.0]
-        cline = [0.0] + [i for i in self.get_number_line() if i > 0.0]
-        indices = self.indices_from_vals(iline, cline)
-        indices = [i - (indices[-1] % 2**self.mbits) for i in indices]
-        for shift in range(2**self.shift_bits):
-            sidx = [i - 2**self.mbits * shift for i in indices]
-            for mantissa in range(2**self.mantissa_bits):
-                midx = [0] + [i + mantissa * 2**(self.mbits-self.mantissa_bits) for i in sidx]
-                print(midx)
-                vals = self.vals_from_indices(midx, cline)
+        for ispec in self.implicit_specs:
+            name = "f" if ispec.is_float else "i"
+            # max_step = 2**(max(0, self.mbits - self.lookup_bits))
+            max_step = 1  # max_step = 2**(3-self.mbits)
+            max_start = max_step - 1
+            # scale the ispec numbers up to the compute spec number line
+            iline = [i * 2 ** (self.emax - ispec.emax) for i in ispec.get_number_line() if i > 0.0]
+            cline = [0.0] + [i for i in self.get_number_line() if i > 0.0]
+            indices = self.indices_from_vals(iline, cline)
+            # shift up to the top of the number line
+            indices = [i - 1 + (2**self.mbits - (indices[-1] % 2**self.mbits)) for i in indices]
+            max_shift = min(max_step * 2**self.lookup_bits, indices[0] + 1)
+            for shift in range(max_start, max_shift, max_step):
+                sidx = [0] + [i - shift for i in indices]
+                vals = self.vals_from_indices(sidx, cline)
                 vals = [-i for i in reversed(vals)] + vals
                 self.lookup_table.append(vals)
-                vals = [(vals[i] + vals[i+1]) / 2.0 for i in range(len(vals) - 1)]
+                vals = [(vals[i] + vals[i + 1]) / 2.0 for i in range(len(vals) - 1)]
                 vals = [-i for i in reversed(vals)] + vals
                 self.midpoints.append(vals)
-                self.mapnames.append(f"m{mantissa}_s{shift}" if shift else f"m{mantissa}")
+                self.mapnames.append(f"{name}{shift}")
 
     def _find_torch_dtype(self) -> torch.dtype | None:
         if self.is_uint:
