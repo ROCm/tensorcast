@@ -177,7 +177,7 @@ class Cast:
         return ScaledTensor(tensor=q, scaledata=ScaleData(scale=sd.scale, zero=sd.zero, offset=sd.offset))
 
     @classmethod
-    def _vcast_lookup(cls, x: torch.Tensor, dtype: DataType, better: Callable = None) -> ScaledTensor:
+    def _vcast_lookup(cls, x: torch.Tensor, dtype: DataType, scale:torch.Tensor = None, better: Callable = None) -> ScaledTensor:
         """Cast a tensor to multiple datatypes based on tile/subtile content."""
 
         def _better(q1: torch.Tensor, q2: torch.Tensor, f: torch.Tensor):
@@ -187,7 +187,8 @@ class Cast:
         xtype = x.dtype
         for i in range(dtype.nspec.num_mappings):
             if i == 0:
-                scale = cls._get_scales(x, dtype).scale
+                if scale is None:
+                    scale = cls._get_scales(x, dtype).scale
                 x = dtype.sspec.reshape_tensor(x, dtype.sspec.is_subtile)
                 if dtype.sspec.is_subtile:
                     scale = scale.unsqueeze(-1)
@@ -252,7 +253,10 @@ class Cast:
         cls.roundmode = roundmode if roundmode else saveround
         cls.scalemode = scalemode if scalemode else savescale
         cls.compmode = compmode if compmode else savecomp
-        if castmode == "prescaled":
+        if dtype.is_lookup:
+            scale = scaledata.scale if scaledata else None
+            stensor = cls._vcast_lookup(x, dtype, scale, better)
+        elif castmode == "prescaled":
             stensor = ScaledTensor(
                 tensor=cls._apply_scales(x, dtype, scaledata.scale, scaledata.zero, lookup=scaledata.lookup, select=select),
                 scaledata=scaledata,
@@ -260,8 +264,6 @@ class Cast:
         elif castmode == "scale":
             sd = cls._get_scales(x, dtype, noreshape=noreshape)
             stensor = ScaledTensor(scaledata=sd)
-        elif dtype.is_lookup:
-            stensor = cls._vcast_lookup(x, dtype, better)
         else:
             stensor = cls._vcast(x, dtype)
         cls.roundmode = saveround
