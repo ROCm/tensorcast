@@ -332,7 +332,6 @@ class NumberSpec:
                 vals = [-i for i in reversed(vals)] + vals
                 self.lookup_table.append(vals)
                 vals = [(vals[i] + vals[i + 1]) / 2.0 for i in range(len(vals) - 1)]
-                vals = [-i for i in reversed(vals)] + vals
                 self.midpoints.append(vals)
                 self.mapnames.append(f"{name}{shift}")
 
