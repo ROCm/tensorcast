@@ -13,14 +13,12 @@ from .lookup import LookupBuilder
 from .number import NumberSpec
 from .scale import ScaleData, ScaledTensor, ScaleSpec
 from .utils import (
-    TensorCastInternalError,
     check_literal,
     is_float8_available,
     is_float8_fnuz_available,
     is_gpu_available,
     is_installed,
     is_power_of_2,
-    litvals,
     next_power_of_2,
     printoptions,
 )
