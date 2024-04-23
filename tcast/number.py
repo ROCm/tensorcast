@@ -233,17 +233,18 @@ class NumberSpec:
         elif name.startswith("ilt_"):
             _, icode, ccode = name.split("_")
             self._decode(ccode)
-            if m := re.fullmatch(r"(f|fi|i)(\d)(\d)", icode):
+            if m := re.fullmatch(r"(f|fi|fis|i)(\d)(\d)", icode):
                 t, self.index_bits, self.lookup_bits = m.group(1), int(m.group(2)), int(m.group(3))
                 self.implicit_specs = []
                 if "f" in t:
                     self.implicit_specs.append(NumberSpec("e2m1fnuz"))
                 if "i" in t:
                     self.implicit_specs.append(NumberSpec("e1m2b1fnuz"))
+                shifted_i = "s" in t
                 self.lookup_name = f"ilt_{icode}"
                 self.implicit_bit = int(len(self.implicit_specs) > 1)
                 self.lookup_table, self.midpoints, self.mapnames = [], [], []
-                self._populate_implicit()
+                self._populate_implicit(shifted_i)
                 return
         # 5.  Handle P3109-style string codes
         if m := re.fullmatch(r"binary(\d+)(p\d)", name):
@@ -312,7 +313,7 @@ class NumberSpec:
         if self.torch_dtype is None:
             self.torch_dtype = self._find_torch_dtype()
 
-    def _populate_implicit(self) -> None:
+    def _populate_implicit(self, shifted_i: bool = False) -> None:
         """Populate the fields of the implicit spec."""
         for ispec in self.implicit_specs:
             name = "f" if ispec.is_float else "i"
@@ -327,13 +328,14 @@ class NumberSpec:
             indices = [i - 1 + (2**self.mbits - (indices[-1] % 2**self.mbits)) for i in indices]
             max_shift = min(max_step * 2**self.lookup_bits, indices[0] + 1)
             for shift in range(max_start, max_shift, max_step):
-                sidx = [0] + [i - shift for i in indices]
+                ishift = shift + 8 if shifted_i and ispec.is_int else shift
+                sidx = [0] + [i - ishift for i in indices]
                 vals = self.vals_from_indices(sidx, cline)
                 vals = [-i for i in reversed(vals)] + vals
                 self.lookup_table.append(vals)
                 vals = [(vals[i] + vals[i + 1]) / 2.0 for i in range(len(vals) - 1)]
                 self.midpoints.append(vals)
-                self.mapnames.append(f"{name}{shift}")
+                self.mapnames.append(f"{name}{ishift}")
 
     def _find_torch_dtype(self) -> torch.dtype | None:
         if self.is_uint:

@@ -8,6 +8,7 @@ import torch
 
 from .cast import Cast, CastMode, ComputeMode, RoundMode, ScaleMode
 from .datatype import DataType
+from .embedded_codebook import find_codebook
 from .extension import Extension
 from .lookup import LookupBuilder
 from .number import NumberSpec
@@ -222,6 +223,9 @@ builder = LookupBuilder("e4m3fn", 4)
 ilt_fi432_e32s8 = builder.make_datatype(NumberSpec("ilt_fi43_e2m3fnuz"), "e32s8")
 ilt_fi433_e32s8 = builder.make_datatype(NumberSpec("ilt_fi43_e3m2fnuz"), "e32s8")
 ilt_fi434_e32s8 = builder.make_datatype(NumberSpec("ilt_fi43_e4m3fnuz"), "e32s8")
+ilt_fis434_e32s8 = builder.make_datatype(NumberSpec("ilt_fis43_e4m3fnuz"), "e32s8")
+ilt_fis434_e32s4 = builder.make_datatype(NumberSpec("ilt_fis43_e4m3fnuz"), "e32s4")
+
 ilt_fi443_e32s8 = builder.make_datatype(NumberSpec("ilt_fi44_e3m2fnuz"), "e32s8")
 ilt_fi444_e32s8 = builder.make_datatype(NumberSpec("ilt_fi44_e4m3fnuz"), "e32s8")
 ilt_fi432_e32s4 = builder.make_datatype(NumberSpec("ilt_fi43_e2m3fnuz"), "e32s4")
