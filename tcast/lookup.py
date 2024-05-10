@@ -23,7 +23,7 @@ class LookupBuilder:
     @property
     def emax(self):
         """Get the compute emax to use for scaling."""
-        return self.cspec.emax #  - int(self.cspec.infnan == "fn")
+        return self.cspec.emax  #  - int(self.cspec.infnan == "fn")
 
     def scale_emax(self, mapping: list[int], from_emax: int = 0):
         """Scale to the compute datatype."""
@@ -64,6 +64,7 @@ class LookupBuilder:
         """Create the scales we will use to build datatypes."""
         for s in [
             "e8m0_t32",
+            "e8m0_t32s16",
             "e8m0_t32s8",
             "e8m0_t32s8o1",
             "e8m0_t32s8o2",
