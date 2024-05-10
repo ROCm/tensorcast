@@ -306,6 +306,8 @@ class NumberSpec:
             self.emin = 1 - self.bias
             self.maxfloat = 2**self.emax * (2.0 - (1 + int(self.infnan in ["fn", "inuz"])) * 2 ** (-self.mbits))
             self.midmax = (2 ** (self.emax + 1) - self.maxfloat) / 2.0 + self.maxfloat
+            if self.infnan in ("fn", "inuz"):
+                self.midmax -= (self.midmax - self.maxfloat) / 2.0
             self.eps = 2**-self.mbits
             self.smallest_normal = 2**self.emin
             self.smallest_subnormal = self.smallest_normal * self.eps
