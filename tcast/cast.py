@@ -61,7 +61,7 @@ class Cast:
         assert dtype and dtype.sspec
         dim = None if dtype.sspec.is_tensor else -1
         x = dtype.sspec.reshape_tensor(x)
-        eps = torch.finfo(x.dtype).eps
+        eps = torch.finfo(torch.float32).eps
         if dtype.nspec.is_uint:
             assert dtype.sspec.scale.is_float
             tmin, tmax = torch.aminmax(x, dim=dim, keepdim=True)
