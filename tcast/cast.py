@@ -34,8 +34,8 @@ class Cast:
             return torch.round(x)
         if cls.roundmode in ("away", "nearest"):
             # return torch.trunc(x + x.sign() * 0.5) torch thinks 0.4999999701976776123046875 + 0.5 is 1.0
-            return torch.where(x.abs().frac() == 0.5, torch.trunc(x + x.sign() * 0.5), x.round())
-        return torch.where(x.abs().frac() == 0.5, torch.trunc(x), x.round())
+            x = torch.where(x.abs().frac() == 0.5, torch.trunc(x + x.sign() * 0.5), x.round()).to(x.dtype)
+        return torch.where(x.abs().frac() == 0.5, torch.trunc(x), x.round()).to(x.dtype)
 
     @classmethod
     def _run_extension(cls, x: torch.Tensor, dtype: DataType, op: str, **kwargs) -> torch.Tensor | None:
@@ -48,15 +48,15 @@ class Cast:
         return None
 
     @classmethod
-    def _safe_frexp(cls, x: torch.Tensor) -> torch.Tensor:
+    def safe_frexp(cls, x: torch.Tensor) -> torch.Tensor:
         return x.float().add(torch.finfo(torch.float32).eps * (x == 0.0)).frexp().exponent
 
     @classmethod
     def _cast_unscaled(cls, x: torch.Tensor, nspec: NumberSpec) -> torch.Tensor:
         assert x.is_floating_point and nspec.is_float
-        valexp = (cls._safe_frexp(x) - 1).clamp_min(nspec.emin)
+        valexp = (cls.safe_frexp(x) - 1).clamp_min(nspec.emin)
         rscale = (nspec.mbits - valexp).exp2()
-        x = cls._round(x * rscale).div(rscale).clamp(-nspec.maxfloat, nspec.maxfloat)
+        x = cls._round(x * rscale).div(rscale).clamp(-nspec.maxfloat, nspec.maxfloat).to(x.dtype)
         return x
 
     @classmethod
@@ -79,19 +79,19 @@ class Cast:
             zero = cls._cast_unscaled(-tmin, dtype.sspec.zero) if dtype.sspec.zero.is_float else cls._round(-tmin / scale)
         elif dtype.sspec.scale.is_float:
             scale = (
-                cls._cast_unscaled(1.0 / x.abs().amax(dim=dim, keepdim=True), dtype.sspec.scale)
+                cls._cast_unscaled(x.abs().amax(dim=dim, keepdim=True) / dtype.nspec.maxfloat, dtype.sspec.scale)
                 if dtype.nspec.is_float
                 else cls._cast_unscaled(x.abs().amax(dim=dim, keepdim=True) / dtype.nspec.maxint, dtype.sspec.scale)
             )
         else:
-            maxexp = cls._safe_frexp(x).amax(dim=dim, keepdim=True) - 1 - dtype.nspec.emax
+            maxexp = cls.safe_frexp(x).amax(dim=dim, keepdim=True) - 1 - dtype.nspec.emax
             if dtype.nspec.ebits > 1 and cls.scalemode in ["auto", "midmax"]:
                 maxexp[(x * (-maxexp).exp2()).abs().amax(dim=dim) > dtype.nspec.midmax] += 1
             if dtype.is_offset:
                 # reshape with subtile as last dim so we can do subtiled lookups or offsets or both
                 if not noreshape:
                     x = dtype.sspec.reshape_tensor(dtype.sspec.revert_tensor(x), True)
-                submaxexp = cls._safe_frexp(x).amax(dim=dim, keepdim=True) - 1 - dtype.nspec.emax
+                submaxexp = cls.safe_frexp(x).amax(dim=dim, keepdim=True) - 1 - dtype.nspec.emax
                 if dtype.nspec.ebits > 1 and cls.scalemode in ["auto", "midmax"]:
                     submaxexp[(x * (-submaxexp).exp2()).abs().amax(dim=dim) > dtype.nspec.midmax] += 1
                 offset = (maxexp.unsqueeze(-1) - submaxexp).clamp_max(2**dtype.sspec.offset - 1)
@@ -121,7 +121,7 @@ class Cast:
                 return ret
             if not noreshape:
                 x = dtype.sspec.reshape_tensor(x, dtype.is_offset and offset is not None)
-        eps = torch.finfo(x.dtype).eps
+        eps = torch.finfo(torch.float32).eps
         if dtype.is_lookup:
             assert dtype.is_tile and (lookup is not None or select is not None) and dtype.sspec.scale.is_exponent
             scale = (scale - dtype.sspec.scale.bias).exp2()
@@ -148,16 +148,16 @@ class Cast:
                 x = scale * cls._round((x + zero) / scale.clamp_min(eps)).clamp(0, dtype.nspec.maxint) - zero
             else:
                 x = scale * ((cls._round(x / scale.clamp_min(eps)) + zero).clamp(0, dtype.nspec.maxint) - zero)
-        elif dtype.sspec.scale.is_float:
+        elif dtype.sspec.scale.is_float and not dtype.nspec.is_float:
             x = cls._round(x / scale.clamp_min(eps)).clamp(dtype.nspec.minint, dtype.nspec.maxint) * scale
         else:
-            assert dtype.sspec.scale.is_exponent
-            if offset is not None:
-                scale = scale.unsqueeze(-1) - offset
-            scale = (scale - dtype.sspec.scale.bias).exp2()
+            if dtype.sspec.scale.is_exponent:
+                if offset is not None:
+                    scale = scale.unsqueeze(-1) - offset
+                scale = (scale - dtype.sspec.scale.bias).exp2()
             x /= scale  # scale x into range of the target dtype
-            valexp = (cls._safe_frexp(x) - 1).clamp_min(dtype.nspec.emin)  # get the independent exponents, clipped to emin
-            rscale = (dtype.nspec.mbits - valexp).exp2()
+            valexp = (cls.safe_frexp(x) - 1).clamp_min(dtype.nspec.emin)  # get the independent exponents, clipped to emin
+            rscale = (dtype.nspec.mbits - valexp).clamp_min(0).exp2()  # TODO(ericd) check this clamp
             x = cls._round(x * rscale).div(rscale).clamp(-dtype.nspec.maxfloat, dtype.nspec.maxfloat) * scale
         if not (dtype.is_tensor or noreshape):
             x = dtype.sspec.revert_tensor(x)
@@ -177,7 +177,7 @@ class Cast:
         return ScaledTensor(tensor=q, scaledata=ScaleData(scale=sd.scale, zero=sd.zero, offset=sd.offset))
 
     @classmethod
-    def _vcast_lookup(cls, x: torch.Tensor, dtype: DataType, scale:torch.Tensor = None, better: Callable = None) -> ScaledTensor:
+    def _vcast_lookup(cls, x: torch.Tensor, dtype: DataType, scale: torch.Tensor = None, better: Callable = None) -> ScaledTensor:
         """Cast a tensor to multiple datatypes based on tile/subtile content."""
 
         def _better(q1: torch.Tensor, q2: torch.Tensor, f: torch.Tensor):
