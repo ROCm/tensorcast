@@ -194,16 +194,26 @@ bfp16 = DataType("int8", "e8m0_t8", "bfp16")
 # Float-scaled integer, tile size 32
 
 uint8_ff32 = DataType("uint8", "float16_float16_t32", "uint8_ff32")
+
+uint4_f32f3232 = DataType("uint4", "float32_float32_t32", "uint4_f32f3232")
 uint4_ff32 = DataType("uint4", "float16_float16_t32", "uint4_ff32")
-uint4_bb32 = DataType("uint4", "bfloat16_bfloat16_t32", "uint4_bb32")
 uint4_fi32 = DataType("uint4", "float16_int8_t32", "uint4_fi32")
+uint4_bb32 = DataType("uint4", "bfloat16_bfloat16_t32", "uint4_bb32")
 uint4_bi32 = DataType("uint4", "bfloat16_int8_t32", "uint4_bi32")
-uint4_f12i432 = DataType("uint4", "e5m6_int4_t32", "uint4_f12i4")
+uint4_f8f832 = DataType("uint4", "e5m3_e5m3_t32", "uint4_f8f832")
+uint4_f8i32 = DataType("uint4", "e5m3_int8_t32", "uint4_f8i32")
+
+uint4_f12i432 = DataType("uint4", "e5m6_int4_t32", "uint4_f12i432")
 int4_f32 = DataType("int4", "float16_t32", "int4_f32")
 int4_b32 = DataType("int4", "bfloat16_t32", "int4_b32")
+int4_f832 = DataType("int4", "e5m3_t32", "int4_f8")
+
 # 1-bit exponent (integer)
 e1m6b1fnuz = DataType("e1m6b1fnuz", "e8m0_t8", "e1m6_e32")  # bias overriden to 1, equivalent to int8
 e1m2b1fnuz = DataType("e1m2b1fnuz", "e8m0_t8", "e1m2_e32")  # bias overriden to 1, equivalent to int4
+e2m1fnuz_f32 = DataType("e2m1fnuz", "float16_t32", "e2m1_f32")
+e2m1fnuz_b32 = DataType("e2m1fnuz", "bfloat16_t32", "e2m1_b32")
+e2m1fnuz_f832 = DataType("e2m1fnuz", "e5m3_t32", "e2m1_f832")
 
 # Original MX, tile size 16, exponent scale, prime bit shared between adjacent values
 

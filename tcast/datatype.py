@@ -52,8 +52,8 @@ class DataType:
                 raise ValueError(f"{prefix} zero spec in scale is incompatible with float or signed int data spec.")
             if self.nspec.is_uint and not self.sspec.zero:
                 raise ValueError(f"{prefix} uint data requires a zero point.")
-            if self.nspec.is_float and not self.sspec.scale.is_exponent:
-                raise NotImplementedError(f"{prefix} only exponent scaling is supported for float data.")
+            # if self.nspec.is_float and not self.sspec.scale.is_exponent:
+            #     raise NotImplementedError(f"{prefix} only exponent scaling is supported for float data.")
             if self.nspec.is_int and not (self.sspec.scale.is_exponent or self.sspec.scale.is_float):
                 raise ValueError(f"{prefix} int data requires either a float or exponent scale.")
 
