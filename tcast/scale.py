@@ -146,8 +146,8 @@ class ScaleSpec:
                 raise ValueError(f"{prefix} asymmetric scaling requires a float scale")
             if self.zero.is_exponent or self.zero.is_uint:
                 raise ValueError(f"{prefix} asymmetric scaling requires a float or int zero point type")
-        if self.is_subtile and (self.zero or not self.scale.is_exponent):
-            raise ValueError(f"{prefix} subtiles require an exponent scale")
+        # if self.is_subtile and (self.zero or not self.scale.is_exponent):
+        #     raise ValueError(f"{prefix} subtiles require an exponent scale")
 
     @classmethod
     def valid(cls, code: str) -> bool:

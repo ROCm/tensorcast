@@ -214,6 +214,15 @@ e1m2b1fnuz = DataType("e1m2b1fnuz", "e8m0_t8", "e1m2_e32")  # bias overriden to 
 e2m1fnuz_f32 = DataType("e2m1fnuz", "float16_t32", "e2m1_f32")
 e2m1fnuz_b32 = DataType("e2m1fnuz", "bfloat16_t32", "e2m1_b32")
 e2m1fnuz_f832 = DataType("e2m1fnuz", "e5m3_t32", "e2m1_f832")
+e3m2fnuz_f32 = DataType("e3m2fnuz", "float16_t32", "e2m1_f32")
+e3m2fnuz_b32 = DataType("e3m2fnuz", "bfloat16_t32", "e3m2_b32")
+e3m2fnuz_f832 = DataType("e3m2fnuz", "e5m3_t32", "e3m2_f832")
+e2m3fnuz_f32 = DataType("e2m3fnuz", "float16_t32", "e2m3_f32")
+e2m3fnuz_b32 = DataType("e2m3fnuz", "bfloat16_t32", "e2m3_b32")
+e2m3fnuz_f832 = DataType("e2m3fnuz", "e5m3_t32", "e2m3_f832")
+e4m3fn_f32 = DataType("e4m3fn", "float16_t32", "e4m3_f32")
+e4m3fn_b32 = DataType("e4m3fn", "bfloat16_t32", "e4m3_b32")
+e4m3fn_f832 = DataType("e4m3fn", "e5m3_t32", "e4m3_f832")
 
 # Original MX, tile size 16, exponent scale, prime bit shared between adjacent values
 
@@ -238,6 +247,7 @@ ilt_fi434_e32s16 = builder.make_datatype(NumberSpec("ilt_fi43_e4m3fnuz"), "e32s1
 ilt_f444_e32s8 = builder.make_datatype(NumberSpec("ilt_f44_e4m3fnuz"), "e32s8")
 ilt_fis434_e32s8 = builder.make_datatype(NumberSpec("ilt_fis43_e4m3fnuz"), "e32s8")
 ilt_fi434_e32s8 = builder.make_datatype(NumberSpec("ilt_fi43_e4m3fnuz"), "e32s8")
+ilt_fi434_f832s8 = builder.make_datatype(NumberSpec("ilt_fi43_e4m3fnuz"), "f832s8")
 # implicit lookup for 4-bit upcast to e4m3, 8 subtiles per tile
 ilt_f434_e32s4 = builder.make_datatype(NumberSpec("ilt_f43_e4m3fnuz"), "e32s4")
 ilt_f444_e32s4 = builder.make_datatype(NumberSpec("ilt_f44_e4m3fnuz"), "e32s4")

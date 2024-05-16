@@ -44,8 +44,8 @@ class DataType:
             if not self.nspec.is_float:
                 raise ValueError(f"{prefix} only float numbers can be cast unscaled.")
         else:
-            if self.nspec.is_lookup and not (self.is_tile and self.sspec.scale.is_exponent):
-                raise ValueError(f"{prefix} lookup numbers must be tiled with an exponent scale.")
+            # if self.nspec.is_lookup and not (self.is_tile and self.sspec.scale.is_exponent):
+            #     raise ValueError(f"{prefix} lookup numbers must be tiled with an exponent scale.")
             if self.nspec.is_exponent:
                 raise ValueError(f"{prefix} exponent number spec is only permitted as a scale.")
             if self.sspec.zero and not self.nspec.is_uint:

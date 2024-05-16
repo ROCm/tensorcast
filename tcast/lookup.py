@@ -66,6 +66,7 @@ class LookupBuilder:
             "e8m0_t32",
             "e8m0_t32s16",
             "e8m0_t32s8",
+            "e5m3_t32s8",
             "e8m0_t32s8o1",
             "e8m0_t32s8o2",
             "e8m0_t32s4",
@@ -77,7 +78,7 @@ class LookupBuilder:
             # "e8m0_t32s4d0_t32s4",
             # "e8m0_t32s4o2d0_t32s4",
         ]:
-            ssplit = s.replace("e8m0_t", "e").split("_")
+            ssplit = s.replace("e8m0_t", "e").replace("e5m3_t", "f8").split("_")
             sname = ssplit[0] if len(ssplit) == 1 else f"{ssplit[0]}_2D"
             self.base_scales[sname] = ScaleSpec(s)
 

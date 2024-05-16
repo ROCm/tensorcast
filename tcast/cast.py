@@ -123,8 +123,9 @@ class Cast:
                 x = dtype.sspec.reshape_tensor(x, dtype.is_offset and offset is not None)
         eps = torch.finfo(torch.float32).eps
         if dtype.is_lookup:
-            assert dtype.is_tile and (lookup is not None or select is not None) and dtype.sspec.scale.is_exponent
-            scale = (scale - dtype.sspec.scale.bias).exp2()
+            assert dtype.is_tile and (lookup is not None or select is not None)
+            if dtype.sspec.scale.is_exponent:
+                scale = (scale - dtype.sspec.scale.bias).exp2()
             tmap = dtype.nspec.get_mapping(select, pos_only=True, torch_dtype=x.dtype, device=x.device)
             tmid = dtype.nspec.get_midpoints(select, pos_only=True, torch_dtype=x.dtype, device=x.device)
             t = x / scale  # scale x into range of the compute dtype, which is where the lookups are
@@ -183,7 +184,7 @@ class Cast:
         def _better(q1: torch.Tensor, q2: torch.Tensor, f: torch.Tensor):
             return torch.linalg.vector_norm(q1 - f, dim=-1) < torch.linalg.vector_norm(q2 - f, dim=-1)
 
-        assert dtype.is_tile and dtype.nspec.is_lookup and dtype.sspec.scale.is_exponent
+        assert dtype.is_tile and dtype.nspec.is_lookup  # and dtype.sspec.scale.is_exponent
         xtype = x.dtype
         for i in range(dtype.nspec.num_mappings):
             if i == 0:
