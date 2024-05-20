@@ -210,7 +210,8 @@ e1m6b1_e32 = DataType("e1m6b1fnuz", "e8m0_t32", "e1m6_e32")
 e1m2b1_e32 = DataType("e1m2b1fnuz", "e8m0_t32", "e1m2_e32")
 e1m2b1_f32 = DataType("e1m2b1fnuz", "e5m3_t32", "e1m2_e32")
 
-# e5m3 scaled fp6 and fp8
+# e5m3 scaled fp4, fp6,  and fp8
+e2m1_f32 = DataType("e2m1fnuz", "e5m3_t32", "e2m1_f32")
 e3m2_f32 = DataType("e3m2fnuz", "e5m3_t32", "e3m2_f32")
 e2m3_f32 = DataType("e2m3fnuz", "e5m3_t32", "e2m3_f32")
 e4m3_f32 = DataType("e4m3fn", "e5m3_t32", "e4m3_f32")
