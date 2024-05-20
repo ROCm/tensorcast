@@ -88,7 +88,7 @@ class Cast:
             if dtype.nspec.ebits > 1 and cls.scalemode in ["auto", "midmax"]:
                 maxexp[(x * (-maxexp).exp2()).abs().amax(dim=dim) > dtype.nspec.midmax] += 1
             if dtype.is_offset:
-                # reshape with subtile as last dim so we can do subtiled lookups or offsets or both
+                # reshape with subtile as last dim so we can do subtiled codebooks or offsets or both
                 if not noreshape:
                     x = dtype.sspec.reshape_tensor(dtype.sspec.revert_tensor(x), True)
                 submaxexp = cls.safe_frexp(x).amax(dim=dim, keepdim=True) - 1 - dtype.nspec.emax
@@ -109,7 +109,7 @@ class Cast:
         scale: torch.Tensor,
         zero: torch.Tensor = None,
         offset: torch.Tensor = None,
-        lookup: torch.Tensor = None,
+        codebook: torch.Tensor = None,
         select: int = None,
         noreshape: bool = False,
     ) -> torch.Tensor:
@@ -117,24 +117,24 @@ class Cast:
         assert dtype and not dtype.is_unscaled
         x = tensor.clone()
         if not dtype.is_tensor:
-            if ret := cls._run_extension(x, dtype, "apply_scales", lookup=lookup) is not None:
+            if ret := cls._run_extension(x, dtype, "apply_scales", codebook=codebook) is not None:
                 return ret
             if not noreshape:
                 x = dtype.sspec.reshape_tensor(x, dtype.is_offset and offset is not None)
         eps = torch.finfo(torch.float32).eps
-        if dtype.is_lookup:
-            assert dtype.is_tile and (lookup is not None or select is not None)
+        if dtype.is_codebook:
+            assert dtype.is_tile and (codebook is not None or select is not None)
             if dtype.sspec.scale.is_exponent:
                 scale = (scale - dtype.sspec.scale.bias).exp2()
             tmap = dtype.nspec.get_mapping(select, pos_only=True, torch_dtype=x.dtype, device=x.device)
             tmid = dtype.nspec.get_midpoints(select, pos_only=True, torch_dtype=x.dtype, device=x.device)
-            t = x / scale  # scale x into range of the compute dtype, which is where the lookups are
+            t = x / scale  # scale x into range of the compute dtype, which is where the codebooks are
             out = torch.zeros_like(x)
             tabs = t.abs()
             if select is None:
-                # t is [-1, tile//subtile, subtile] and lookup is [-1, tile//subtile]
-                tmap = tmap[lookup].unsqueeze(-2)
-                tmid = tmid[lookup].unsqueeze(-2)
+                # t is [-1, tile//subtile, subtile] and codebook is [-1, tile//subtile]
+                tmap = tmap[codebook].unsqueeze(-2)
+                tmid = tmid[codebook].unsqueeze(-2)
                 out = torch.where(tabs <= tmid[..., 0], tmap[..., 0], out)
                 for i in range(tmap.shape[-1]):
                     out = torch.where(tabs >= tmid[..., i], tmap[..., i], out)
@@ -178,13 +178,15 @@ class Cast:
         return ScaledTensor(tensor=q, scaledata=ScaleData(scale=sd.scale, zero=sd.zero, offset=sd.offset))
 
     @classmethod
-    def _vcast_lookup(cls, x: torch.Tensor, dtype: DataType, scale: torch.Tensor = None, better: Callable = None) -> ScaledTensor:
+    def _vcast_codebook(
+        cls, x: torch.Tensor, dtype: DataType, scale: torch.Tensor = None, better: Callable = None
+    ) -> ScaledTensor:
         """Cast a tensor to multiple datatypes based on tile/subtile content."""
 
         def _better(q1: torch.Tensor, q2: torch.Tensor, f: torch.Tensor):
             return torch.linalg.vector_norm(q1 - f, dim=-1) < torch.linalg.vector_norm(q2 - f, dim=-1)
 
-        assert dtype.is_tile and dtype.nspec.is_lookup  # and dtype.sspec.scale.is_exponent
+        assert dtype.is_tile and dtype.nspec.is_codebook  # and dtype.sspec.scale.is_exponent
         xtype = x.dtype
         for i in range(dtype.nspec.num_mappings):
             if i == 0:
@@ -195,16 +197,16 @@ class Cast:
                     scale = scale.unsqueeze(-1)
                 q = cls._apply_scales(x, dtype, scale, None, select=i, noreshape=True)
                 out = q.clone()
-                lookup = torch.zeros(q.shape[:-1], dtype=torch.int8, device=x.device)
+                codebook = torch.zeros(q.shape[:-1], dtype=torch.int8, device=x.device)
             else:
                 if not dtype.is_subtile:
                     scale = cls._get_scales(x, dtype, noreshape=True).scale
                 q = cls._apply_scales(x, dtype, scale, None, select=i, noreshape=True)
                 choice = better(q, out, x) if better else _better(q, out, x)
-                lookup[choice] = i
+                codebook[choice] = i
                 out[choice] = q[choice]
         out = dtype.sspec.revert_tensor(out).to(xtype)
-        return ScaledTensor(tensor=out, scaledata=ScaleData(lookup=lookup))
+        return ScaledTensor(tensor=out, scaledata=ScaleData(codebook=codebook))
 
     @classmethod
     def sparse(cls, tensor: torch.Tensor, stile: int, dense: int, dim: int = -1) -> torch.Tensor:
@@ -243,7 +245,7 @@ class Cast:
 
         CastMode is one of "virtual", "prescaled", or "scale".
         ScaleData is a named tuple of scale factors and zero points for use with the "scale" mode.
-        better is a function for lookup types to determine which lookup is better by some metric.
+        better is a function for codebook types to determine which codebook is better by some metric.
         returns a ScaledTensor with the cast tensor and the calculated scale factors and other metadata.
         """  # noqa: D200, D212
         check_literal(castmode, CastMode)
@@ -254,12 +256,12 @@ class Cast:
         cls.roundmode = roundmode if roundmode else saveround
         cls.scalemode = scalemode if scalemode else savescale
         cls.compmode = compmode if compmode else savecomp
-        if dtype.is_lookup:
+        if dtype.is_codebook:
             scale = scaledata.scale if scaledata else None
-            stensor = cls._vcast_lookup(x, dtype, scale, better)
+            stensor = cls._vcast_codebook(x, dtype, scale, better)
         elif castmode == "prescaled":
             stensor = ScaledTensor(
-                tensor=cls._apply_scales(x, dtype, scaledata.scale, scaledata.zero, lookup=scaledata.lookup, select=select),
+                tensor=cls._apply_scales(x, dtype, scaledata.scale, scaledata.zero, codebook=scaledata.codebook, select=select),
                 scaledata=scaledata,
             )
         elif castmode == "scale":

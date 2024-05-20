@@ -52,16 +52,14 @@ class NumberSpec:
     minint: int = None
     torch_dtype: torch.dtype = None
 
-    lookup_table: list[list[float]] = None
-    lookup_name: str = None
+    codebook: list[list[float]] = None
+    codebook_name: str = None
     midpoints: list[list[float]] = None
     mapnames: list[str] = None
     index_bits: int = None
-    lookup_bits: int = None
-    offset_bits: int = None
-    implicit_specs: list[Self] = None
-    implicit_bit: int = 0
+    meta_bits: int = None
     _number_line: list[float] = None
+    _implicit: bool = False
 
     def __init__(self, code: str | torch.dtype):
         self._decode(code)
@@ -69,9 +67,10 @@ class NumberSpec:
 
     @property
     def name(self):
-        """NumberSpec name or both lookup name and number name."""
-        if self.is_lookup:
-            return self.lookup_name + "_" + self._name
+        """NumberSpec name or both codebook name and number name."""
+        if self.is_codebook:
+            specifier = "" if self._implicit else "_" + "".join(self.mapnames)
+            return f"{self.codebook_name}{specifier}_{self._name}"
         return self._name
 
     @property
@@ -94,29 +93,25 @@ class NumberSpec:
         return self.get_number_line()
 
     @property
-    def lookup(self) -> list[list[float]]:
-        return self.lookup_table
-
-    @property
-    def is_lookup(self) -> bool:
-        return self.lookup_table is not None
+    def is_codebook(self) -> bool:
+        return self.codebook is not None
 
     @property
     def num_mappings(self) -> int:
-        return 2 ** (self.lookup_bits + self.implicit_bit) if self.is_lookup else 0
+        return 2 ** self.meta_bits if self.is_codebook else 0
 
     @property
     def current_mappings(self) -> int:
-        return len(self.lookup_table) if self.is_lookup else 0
+        return len(self.codebook) if self.is_codebook else 0
 
     @property
     def num_values(self) -> int:
-        return 2**self.index_bits if self.is_lookup else 0
+        return 2**self.index_bits if self.is_codebook else 0
 
     @property
-    def max_lookup(self) -> float:
-        if self.is_lookup:
-            return max([mapping[-1] for mapping in self.lookup_table])
+    def max_codebook(self) -> float:
+        if self.is_codebook:
+            return max([mapping[-1] for mapping in self.codebook])
         return self.max
 
     def get_number_line(self) -> list[float]:
@@ -130,55 +125,57 @@ class NumberSpec:
             line = [i * self.smallest_subnormal for i in range(2**self.mbits)]  # subnormals
             for e in range(self.emax - self.emin + 1):
                 line += [(self.smallest_normal + i * self.smallest_subnormal) * 2**e for i in range(2**self.mbits)]
+            if self.infnan in ("fn", "inuz"):
+                line = [0.0] + line[:-1]
             self._number_line = [-v for v in reversed(line)] + line
         return self._number_line
 
     def add_mapping(self, mapping: list[float], mapname: str):
-        """Add a new lookup."""
-        if not self.is_lookup:
-            raise RuntimeError("NumberSpec.add_mapping called for non-lookup number spec.")
+        """Add a new codebook."""
+        if not self.is_codebook:
+            raise RuntimeError("NumberSpec.add_mapping called for non-codebook number spec.")
         if self.current_mappings == self.num_mappings:
             raise RuntimeError(f"NumberSpec.add_mapping exceeds number of mappings specified ({self.num_mappings}).")
         for v in mapping:
             if v not in self.number_line:
                 raise ValueError(f"NumberSpec.add_mapping: mapping value {v} is not representable in {self.name}")
-        self.lookup_table.append(mapping)
+        self.codebook.append(mapping)
         self.midpoints.append([(mapping[i] + mapping[i + 1]) / 2.0 for i in range(len(mapping) - 1)])
         self.mapnames.append(mapname)
 
     def get_mapping(
         self, index: int = None, pos_only: bool = False, torch_dtype: torch.dtype = torch.float32, device: torch.device = "cuda"
     ) -> torch.Tensor:
-        """Return one or all of the lookups as a tensor."""
-        if not self.is_lookup:
-            raise RuntimeError("NumberSpec.get_mapping called for non-lookup number spec.")
+        """Return one or all of the codebooks as a tensor."""
+        if not self.is_codebook:
+            raise RuntimeError("NumberSpec.get_mapping called for non-codebook number spec.")
         if index is not None:
-            if index >= len(self.lookup_table):
-                raise ValueError(f"Lookup: getting mapping {index} when there are only {len(self.lookup_table)}.")
-            vals = [i for i in self.lookup_table[index] if i > 0.0] if pos_only else self.lookup_table[index]
+            if index >= len(self.codebook):
+                raise ValueError(f"codebook: getting mapping {index} when there are only {len(self.codebook)}.")
+            vals = [i for i in self.codebook[index] if i > 0.0] if pos_only else self.codebook[index]
         else:
-            vals = [[i[j] for j in range(len(i)) if i[j] > 0.0] for i in self.lookup_table] if pos_only else self.lookup_table
+            vals = [[i[j] for j in range(len(i)) if i[j] > 0.0] for i in self.codebook] if pos_only else self.codebook
         return torch.tensor(vals, dtype=torch_dtype, device=device)
 
     def get_midpoints(
         self, index: int = None, pos_only: bool = False, torch_dtype: torch.dtype = torch.float32, device: torch.device = "cuda"
     ) -> torch.Tensor:
         """Return one or all of the midpoint vectors as a tensor."""
-        if not self.is_lookup:
-            raise RuntimeError("NumberSpec.get_midpoints called for non-lookup number spec.")
+        if not self.is_codebook:
+            raise RuntimeError("NumberSpec.get_midpoints called for non-codebook number spec.")
         if index is not None:
             if index >= len(self.midpoints):
-                raise ValueError(f"Lookup: getting lookup {index} when there are only {len(self.midpoints)}.")
+                raise ValueError(f"codebook: getting codebook {index} when there are only {len(self.midpoints)}.")
             vals = [i for i in self.midpoints[index] if i > 0.0] if pos_only else self.midpoints[index]
         else:
             vals = [[i[j] for j in range(len(i)) if i[j] > 0.0] for i in self.midpoints] if pos_only else self.midpoints
         return torch.tensor(vals, dtype=torch_dtype, device=device)
 
     def mapname(self, index: int) -> str:
-        if not self.is_lookup:
-            raise RuntimeError("NumberSpec.mapname called for non-lookup number spec.")
+        if not self.is_codebook:
+            raise RuntimeError("NumberSpec.mapname called for non-codebook number spec.")
         if index is None or index >= len(self.mapnames):
-            raise ValueError(f"Lookup: getting lookup {index} when there are only {len(self.mapnames)}.")
+            raise ValueError(f"codebook: getting codebook {index} when there are only {len(self.mapnames)}.")
         return self.mapnames[index]
 
     def indices_from_vals(self, vals: list[float] | float, line: list[float] = None) -> list[int]:
@@ -215,37 +212,34 @@ class NumberSpec:
         elif name in MXUNSUPPORTED:
             raise NotImplementedError(
                 f"\tNumberSpec: code '{name}' is a scaled datatype rather than a number format.\n"
-                f"\tMX types (a/k/a bfp prime) are not yet supported."
+                f"\tMX types (a/k/a bfp/msfp prime) are not yet supported."
             )
         # 3.  Check for instrisic non-standard bias
         bias_hack = int(name.startswith("float8") and name.endswith("fnuz"))  # implicit non-standard bias for torch fnuz
         name = name.removeprefix("float8_").removeprefix("float8")
-        # 4a.  Handle lookup table specs, which are separated from the compute spec by an underscore.
-        if name.count("_") == 1:
-            lcode, ccode = name.split("_")
-            self._decode(ccode)
-            if m := re.fullmatch(r"l(\d)(\d)(.*)", lcode):
-                self.index_bits, self.lookup_bits, self.lookup_name = int(m.group(1)), int(m.group(2)), m.group(3)
-                self.lookup_table, self.midpoints, self.mapnames = [], [], []
-                return
-            raise ValueError(f"NumberSpec lookup code {code} is invalid.")
-        # 4b.  Handle implicit table specs, which are separated from the implicit spec and compute spec by underscores.
-        elif name.startswith("ilt_"):
-            _, icode, ccode = name.split("_")
-            self._decode(ccode)
-            if m := re.fullmatch(r"(f|fi|fis|i)(\d)(\d)", icode):
-                t, self.index_bits, self.lookup_bits = m.group(1), int(m.group(2)), int(m.group(3))
-                self.implicit_specs = []
-                if "f" in t:
-                    self.implicit_specs.append(NumberSpec("e2m1fnuz"))
-                if "i" in t:
-                    self.implicit_specs.append(NumberSpec("e1m2b1fnuz"))
-                shifted_i = "s" in t
-                self.lookup_name = f"ilt_{icode}"
-                self.implicit_bit = int(len(self.implicit_specs) > 1)
-                self.lookup_table, self.midpoints, self.mapnames = [], [], []
-                self._populate_implicit(shifted_i)
-                return
+        # 4.  Handle codebook specs, which are separated from the compute spec by an underscore.
+        if name.startswith("cb") or name.startswith("icb"):
+            if name.count("_") == 1:
+                cbcode, ccode = name.split("_")
+                self._decode(ccode)
+                if m := re.fullmatch(r"(cb|icb)(\d)(\d)(.*)", cbcode):
+                    implicit, ibits, meta, icode = m.group(1) == "icb", int(m.group(2)), int(m.group(3)), m.group(4)
+                    if ibits != 4:
+                        raise NotImplementedError(f"NumberSpec: codebook index bits must be 4, not {ibits}.")
+                    self.codebook, self.midpoints, self.mapnames = [], [], []
+                    if implicit != (icode is None):
+                        if implicit and icode in ("f", "i", "fi"):
+                            ispecs = []
+                            if "f" in icode:
+                                ispecs.append(NumberSpec("e2m1fnuz"))
+                            if "i" in icode:
+                                ispecs.append(NumberSpec("e1m2b1fnuz"))
+                            self._populate_implicit(meta, ispecs)
+                        meta += len(ispecs) - 1
+                    self._implicit = implicit
+                    self.meta_bits, self.index_bits, self.codebook_name = meta, ibits, cbcode
+                    return
+            raise ValueError(f"NumberSpec codebook code {name} is invalid.")
         # 5.  Handle P3109-style string codes
         if m := re.fullmatch(r"binary(\d+)(p\d)", name):
             bits = int(m.group(1))
@@ -290,7 +284,7 @@ class NumberSpec:
                 else:
                     self.bias = int(self.bias[1:])
         if self.ebits is None:
-            raise ValueError(f"NumberSpec: code {code} is not a valid format.")
+            raise ValueError(f"NumberSpec: code {name} is not a valid format.")
         self._name = name
         # 8.  Fill in the remaining fields in the spec from ebits/mbits/signed/infnan
         self.is_int = self.ebits == 1 and self.bias == 1 and self.signed and self.infnan == "fnuz"
@@ -315,29 +309,26 @@ class NumberSpec:
         if self.torch_dtype is None:
             self.torch_dtype = self._find_torch_dtype()
 
-    def _populate_implicit(self, shifted_i: bool = False) -> None:
+    def _populate_implicit(self, meta: int, ispecs: list[Self]) -> None:
         """Populate the fields of the implicit spec."""
-        for ispec in self.implicit_specs:
+        for ispec in ispecs:
             name = "f" if ispec.is_float else "i"
-            # max_step = 2**(max(0, self.mbits - self.lookup_bits))
-            max_step = 1  # max_step = 2**(3-self.mbits)
-            max_start = max_step - 1
             # scale the ispec numbers up to the compute spec number line
             iline = [i * 2 ** (self.emax - ispec.emax) for i in ispec.get_number_line() if i > 0.0]
-            cline = [0.0] + [i for i in self.get_number_line() if i > 0.0]
+            cline = [0.0] + [i for i in self.number_line if i > 0.0]
+            if self.infnan in ("fn", "inuz"):
+                cline = [0.0] + cline
             indices = self.indices_from_vals(iline, cline)
             # shift up to the top of the number line
             indices = [i - 1 + (2**self.mbits - (indices[-1] % 2**self.mbits)) for i in indices]
-            max_shift = min(max_step * 2**self.lookup_bits, indices[0] + 1)
-            for shift in range(max_start, max_shift, max_step):
-                ishift = shift + 8 if shifted_i and ispec.is_int else shift
-                sidx = [0] + [i - ishift for i in indices]
+            max_shift = min(2**meta, indices[0] + 1)
+            for shift in range(max_shift):
+                sidx = [0] + [i - shift for i in indices]
                 vals = self.vals_from_indices(sidx, cline)
                 vals = [-i for i in reversed(vals)] + vals
-                self.lookup_table.append(vals)
-                vals = [(vals[i] + vals[i + 1]) / 2.0 for i in range(len(vals) - 1)]
-                self.midpoints.append(vals)
-                self.mapnames.append(f"{name}{ishift}")
+                self.codebook.append(vals)
+                self.midpoints.append([(vals[i] + vals[i + 1]) / 2.0 for i in range(len(vals) - 1)])
+                self.mapnames.append(f"{name}{shift}")
 
     def _find_torch_dtype(self) -> torch.dtype | None:
         if self.is_uint:

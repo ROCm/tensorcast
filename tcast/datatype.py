@@ -23,11 +23,11 @@ class DataType:
     is_subtile: bool = False
     is_offset: bool = False
     is_2d: bool = False
-    is_lookup: bool = False
+    is_codebook: bool = False
 
     def __init__(self, nspec: str | NumberSpec, sspec: str | ScaleSpec = None, name: str = None):
         self.nspec = nspec if isinstance(nspec, NumberSpec) else NumberSpec(nspec)
-        self.is_lookup = self.nspec.is_lookup
+        self.is_codebook = self.nspec.is_codebook
         self._name = name
         self.sspec = sspec if isinstance(sspec, ScaleSpec) else ScaleSpec(sspec) if sspec else None
         if self.sspec is None:
@@ -44,16 +44,12 @@ class DataType:
             if not self.nspec.is_float:
                 raise ValueError(f"{prefix} only float numbers can be cast unscaled.")
         else:
-            # if self.nspec.is_lookup and not (self.is_tile and self.sspec.scale.is_exponent):
-            #     raise ValueError(f"{prefix} lookup numbers must be tiled with an exponent scale.")
             if self.nspec.is_exponent:
                 raise ValueError(f"{prefix} exponent number spec is only permitted as a scale.")
             if self.sspec.zero and not self.nspec.is_uint:
                 raise ValueError(f"{prefix} zero spec in scale is incompatible with float or signed int data spec.")
             if self.nspec.is_uint and not self.sspec.zero:
                 raise ValueError(f"{prefix} uint data requires a zero point.")
-            # if self.nspec.is_float and not self.sspec.scale.is_exponent:
-            #     raise NotImplementedError(f"{prefix} only exponent scaling is supported for float data.")
             if self.nspec.is_int and not (self.sspec.scale.is_exponent or self.sspec.scale.is_float):
                 raise ValueError(f"{prefix} int data requires either a float or exponent scale.")
 
@@ -64,7 +60,7 @@ class DataType:
         return str(self)
 
     def bits_per_value(self, tensor: torch.Tensor) -> float:
-        """Given scaling metadata and lookup metadata, how many bits per value?  Does not include lookup tables themselves."""
+        """Given scaling metadata and codebook metadata, how many bits per value?  Does not include codebook tables themselves."""
         if self.is_unscaled:
             return float(self.nspec.bits)
         scale_bits = float(self.sspec.scale.bits + (self.sspec.zero.bits if self.sspec.zero else 0))
@@ -83,12 +79,12 @@ class DataType:
         tsize = self.sspec.tile * (self.sspec.tile2 if self.is_2d else 1)
         ssize = (self.sspec.subtile * (self.sspec.subtile2 if self.is_2d else 1)) if self.is_subtile else tsize
         subtiles_per_tile = tsize // ssize
-        value_bits = tsize * (self.nspec.index_bits if self.is_lookup else self.nspec.bits)
+        value_bits = tsize * (self.nspec.index_bits if self.is_codebook else self.nspec.bits)
         meta_bits = scale_bits
-        if self.is_lookup:
-            meta_bits += (self.nspec.lookup_bits + self.nspec.implicit_bit) * subtiles_per_tile
+        if self.is_codebook:
+            meta_bits += self.nspec.meta_bits * subtiles_per_tile
         if self.is_offset:
-            assert not self.is_lookup
+            assert not self.is_codebook
             meta_bits += self.sspec.offset * subtiles_per_tile
         return (meta_bits + value_bits) / tsize
 

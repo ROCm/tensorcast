@@ -1,5 +1,5 @@
 """TensorCast: Conversion and compression of arbitrary datatypes."""
-# tcast/lookup.py: tools for making make lookup table NumberSpecs
+# tcast/codebook.py: tools for making lookup table NumberSpecs
 
 import math
 
@@ -9,11 +9,13 @@ from .scale import ScaleSpec
 from .utils import is_power_of_2
 
 
-class LookupBuilder:
-    """Create lookup table datatypes."""
+class CodebookBuilder:
+    """Create codebook datatypes."""
 
     def __init__(self, cspec: str | NumberSpec, bits: int = 4):
         self.cspec = cspec if isinstance(cspec, NumberSpec) else NumberSpec(cspec)
+        if self.cspec.mbits == 2:
+            raise NotImplementedError("CodebookBuilder only supports 3-bit mantissas.")
         self.bits = bits
         self.base_mappings = {}
         self.base_scales = {}
@@ -35,7 +37,7 @@ class LookupBuilder:
             mapping.insert(0, 0.0)
         return [-v for v in reversed(mapping)] + mapping
 
-    def make_lookup_mapping(
+    def make_codebook_mapping(
         self, mapping: str | NumberSpec | list[float], index_shift: int = 0, power_shift: int = 0, mirror: bool = False
     ) -> list[float]:
         """Create a mapping from a number spec or a list of floats, with optional modifications."""
@@ -64,19 +66,17 @@ class LookupBuilder:
         """Create the scales we will use to build datatypes."""
         for s in [
             "e8m0_t32",
+            "e5m3_t32",
             "e8m0_t32s16",
+            "e5m3_t32s16",
             "e8m0_t32s8",
             "e5m3_t32s8",
-            "e8m0_t32s8o1",
-            "e8m0_t32s8o2",
             "e8m0_t32s4",
-            "e8m0_t32s4o1",
-            "e8m0_t32s4o2",
+            "e5m3_t32s4",
             # "e8m0_t32d0_t32",
+            # "e8m0_t32s8d0_t32s16",
             # "e8m0_t32s8d0_t32s8",
-            # "e8m0_t32s8o2d0_t32s8",
             # "e8m0_t32s4d0_t32s4",
-            # "e8m0_t32s4o2d0_t32s4",
         ]:
             ssplit = s.replace("e8m0_t", "e").replace("e5m3_t", "f8").split("_")
             sname = ssplit[0] if len(ssplit) == 1 else f"{ssplit[0]}_2D"
@@ -84,31 +84,30 @@ class LookupBuilder:
 
     def make_base_mappings(self):
         """Create some building block mappings."""
-        prog4 = self.scale_emax(self.mirror([0.1015625, 0.1875, 0.3125, 0.46875, 0.6875, 0.875, 1.0]))
-        out2 = self.scale_emax(self.mirror([0.04296875, 0.0625, 0.09375000, 0.125, 0.1875, 0.25, 1.0]))
-        out3 = self.scale_emax(self.mirror([0.02343750, 0.03125000, 0.04296875, 0.0625, 0.09375000, 0.125, 1.0]))
+        if self.cspec.mbits == 2:
+            prog4 = self.scale_emax(self.mirror([0.02734375, 0.078125, 0.1875, 0.375, 0.625, 0.875, 1.0]))
+        else:
+            prog4 = self.scale_emax(self.mirror([0.1015625, 0.1875, 0.3125, 0.46875, 0.6875, 0.875, 1.0]))
+        out2 = self.scale_emax(self.mirror([0.046875, 0.0625, 0.09375, 0.125, 0.1875, 0.25, 1.0]))
+        out3 = self.scale_emax(self.mirror([0.0234375, 0.03125, 0.046875, 0.0625, 0.09375, 0.125, 1.0]))
         for i in range(8):
-            self.base_mappings[f"f{i}"] = self.make_lookup_mapping("e2m1fnuz", index_shift=4 - i)
-            self.base_mappings[f"i{i}"] = self.make_lookup_mapping("e1m2fnuz", index_shift=6 - i)
-            self.base_mappings[f"p{i}"] = self.make_lookup_mapping(prog4, index_shift=-i)
-            self.base_mappings[f"o2{i}"] = self.make_lookup_mapping(out2, index_shift=-i)
-            self.base_mappings[f"o3{i}"] = self.make_lookup_mapping(out3, index_shift=-i)
+            self.base_mappings[f"f{i}"] = self.make_codebook_mapping("e2m1fnuz", index_shift=4 - i)
+            self.base_mappings[f"i{i}"] = self.make_codebook_mapping("e1m2fnuz", index_shift=6 - i)
+            self.base_mappings[f"p{i}"] = self.make_codebook_mapping(prog4, index_shift=-i)
+            self.base_mappings[f"o2{i}"] = self.make_codebook_mapping(out2, index_shift=-i)
+            self.base_mappings[f"o3{i}"] = self.make_codebook_mapping(out3, index_shift=-i)
             for j in range(1, 5):
-                self.base_mappings[f"f{i}s{j}"] = self.make_lookup_mapping("e2m1fnuz", index_shift=4 - i, power_shift=j)
-                self.base_mappings[f"i{i}s{j}"] = self.make_lookup_mapping("e1m2fnuz", index_shift=6 - i, power_shift=j)
-                self.base_mappings[f"p{i}s{j}"] = self.make_lookup_mapping(prog4, index_shift=-i, power_shift=j)
+                self.base_mappings[f"f{i}s{j}"] = self.make_codebook_mapping("e2m1fnuz", index_shift=4 - i, power_shift=j)
+                self.base_mappings[f"i{i}s{j}"] = self.make_codebook_mapping("e1m2fnuz", index_shift=6 - i, power_shift=j)
+                self.base_mappings[f"p{i}s{j}"] = self.make_codebook_mapping(prog4, index_shift=-i, power_shift=j)
 
-    def make_lspec(self, base_names: str, uname: str = None) -> NumberSpec:
+    def make_lspec(self, base_names: str) -> NumberSpec:
         """Create an lspec from a hyphen-separated string of base mapping names."""
         names = base_names.split("-")
         if not is_power_of_2(len(names)):
             raise ValueError(f"make_lspec: mapping name list has length {len(names)}; need a power of 2.")
-        if not uname:
-            uname = base_names.replace("-", "")
-        lprefix = f"l{self.bits}{int(math.log2(len(names)))}"
-        if not uname.startswith(lprefix):
-            uname = lprefix + uname
-        lspec = NumberSpec(f"{uname}_{self.cspec.name}")
+        prefix = f"cb{self.bits}{math.ceil(math.log2(len(names)))}"
+        lspec = NumberSpec(f"{prefix}_{self.cspec.name}")
         for n in names:
             mapping = self.base_mappings.get(n, None)
             if mapping is None:
@@ -117,7 +116,7 @@ class LookupBuilder:
         return lspec
 
     def make_datatype(self, lspec: NumberSpec, sspec: str = None) -> DataType | list[DataType]:
-        """Create a dtype from lookup tables described by existing numpecs."""
+        """Create a dtype from codebook described by existing numpecs."""
         dtypes = []
         for s in [sspec] if sspec else list(self.base_scales.keys()):
             assert isinstance(s, str)

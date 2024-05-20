@@ -15,7 +15,7 @@ class ScaleData(NamedTuple):
 
     scale: torch.Tensor = None
     zero: torch.Tensor = None
-    lookup: torch.Tensor = None
+    codebook: torch.Tensor = None
     offset: torch.Tensor = None
 
 
