@@ -23,11 +23,9 @@ class DataType:
     is_subtile: bool = False
     is_offset: bool = False
     is_2d: bool = False
-    is_codebook: bool = False
 
     def __init__(self, nspec: str | NumberSpec, sspec: str | ScaleSpec = None, name: str = None):
         self.nspec = nspec if isinstance(nspec, NumberSpec) else NumberSpec(nspec)
-        self.is_codebook = self.nspec.is_codebook
         self._name = name
         self.sspec = sspec if isinstance(sspec, ScaleSpec) else ScaleSpec(sspec) if sspec else None
         if self.sspec is None:
@@ -37,6 +35,14 @@ class DataType:
                 setattr(self, attr, getattr(self.sspec, attr))
         assert int(self.is_unscaled) + int(self.is_tensor) + int(self.is_channel) + int(self.is_tile) == 1
         self._check()
+
+    @property
+    def is_codebook(self):
+        return self.nspec.is_codebook
+
+    @property
+    def is_implicit(self):
+        return self.nspec.is_implicit
 
     def _check(self):
         prefix = f"DataType: '{self.name}'"

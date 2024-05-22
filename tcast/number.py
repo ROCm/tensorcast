@@ -97,6 +97,10 @@ class NumberSpec:
         return self.codebook is not None
 
     @property
+    def is_implicit(self) -> bool:
+        return self.is_codebook and self._implicit
+
+    @property
     def num_mappings(self) -> int:
         return 2 ** self.meta_bits if self.is_codebook else 0
 
