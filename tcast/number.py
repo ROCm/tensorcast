@@ -317,6 +317,8 @@ class NumberSpec:
         num_positive = 2 ** (self.index_bits - 1) - 1
         for spec in specs:
             name, val = spec
+            if isinstance(val, str):
+                val = int(val)
             indices = []
             # build the number line for this spec based on indices of negative values (-maxval is at index 0 of the number line)
             if name in "fi":
