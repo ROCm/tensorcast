@@ -2,13 +2,13 @@
 # tcast/number.py: number format specification
 
 from dataclasses import dataclass
+import math
 import re
 from typing import Literal
 
 import torch
-from typing_extensions import Self
 
-from .utils import is_float8_available, is_float8_fnuz_available
+from .utils import is_float8_available, is_float8_fnuz_available, next_power_of_2
 
 InfNan = Literal["ieee", "fn", "fnuz", "inuz"]
 
@@ -69,8 +69,7 @@ class NumberSpec:
     def name(self):
         """NumberSpec name or both codebook name and number name."""
         if self.is_codebook:
-            specifier = "" if self._implicit else "_" + "".join(self.mapnames)
-            return f"{self.codebook_name}{specifier}_{self._name}"
+            return f"{self.codebook_name}_{self._name}"
         return self._name
 
     @property
@@ -102,7 +101,7 @@ class NumberSpec:
 
     @property
     def num_mappings(self) -> int:
-        return 2 ** self.meta_bits if self.is_codebook else 0
+        return 2**self.meta_bits if self.is_codebook else 0
 
     @property
     def current_mappings(self) -> int:
@@ -224,24 +223,23 @@ class NumberSpec:
         # 4.  Handle codebook specs, which are separated from the compute spec by an underscore.
         if name.startswith("cb") or name.startswith("icb"):
             if name.count("_") == 1:
-                cbcode, ccode = name.split("_")
+                self.codebook_name, ccode = name.split("_")
                 self._decode(ccode)
-                if m := re.fullmatch(r"(cb|icb)(\d)(\d)(.*)", cbcode):
-                    implicit, ibits, meta, icode = m.group(1) == "icb", int(m.group(2)), int(m.group(3)), m.group(4)
-                    if ibits != 4:
-                        raise NotImplementedError(f"NumberSpec: codebook index bits must be 4, not {ibits}.")
+                if m := re.fullmatch(r"(cb|icb)(\d)(\d)(.+)", self.codebook_name):
+                    self._implicit, self.index_bits, self.meta_bits, icode = (
+                        m.group(1) == "icb",
+                        int(m.group(2)),
+                        int(m.group(3)),
+                        m.group(4),
+                    )
+                    if self.index_bits != 4:
+                        raise NotImplementedError(f"NumberSpec: codebook index bits must be 4, not {self.index_bits}.")
                     self.codebook, self.midpoints, self.mapnames = [], [], []
-                    if implicit != (icode is None):
-                        if implicit and icode in ("f", "i", "fi"):
-                            ispecs = []
-                            if "f" in icode:
-                                ispecs.append(NumberSpec("e2m1fnuz"))
-                            if "i" in icode:
-                                ispecs.append(NumberSpec("e1m2b1fnuz"))
-                            self._populate_implicit(meta, ispecs)
-                        meta += len(ispecs) - 1
-                    self._implicit = implicit
-                    self.meta_bits, self.index_bits, self.codebook_name = meta, ibits, cbcode
+                    if self._implicit:
+                        if matches := list(re.finditer(r"([ipsf])(\d)?", icode)):
+                            self._populate_implicit(tuple(m.groups() for m in matches))
+                        else:
+                            raise ValueError(f"NumberSpec: code {name} is not a valid implicit codebook.")
                     return
             raise ValueError(f"NumberSpec codebook code {name} is invalid.")
         # 5.  Handle P3109-style string codes
@@ -313,26 +311,35 @@ class NumberSpec:
         if self.torch_dtype is None:
             self.torch_dtype = self._find_torch_dtype()
 
-    def _populate_implicit(self, meta: int, ispecs: list[Self]) -> None:
+    def _populate_implicit(self, specs: list[tuple]) -> None:
         """Populate the fields of the implicit spec."""
-        for ispec in ispecs:
-            name = "f" if ispec.is_float else "i"
-            # scale the ispec numbers up to the compute spec number line
-            iline = [i * 2 ** (self.emax - ispec.emax) for i in ispec.get_number_line() if i > 0.0]
-            cline = [0.0] + [i for i in self.number_line if i > 0.0]
-            if self.infnan in ("fn", "inuz"):
-                cline = [0.0] + cline
-            indices = self.indices_from_vals(iline, cline)
-            # shift up to the top of the number line
-            indices = [i - 1 + (2**self.mbits - (indices[-1] % 2**self.mbits)) for i in indices]
-            max_shift = min(2**meta, indices[0] + 1)
-            for shift in range(max_shift):
-                sidx = [0] + [i - shift for i in indices]
-                vals = self.vals_from_indices(sidx, cline)
-                vals = [-i for i in reversed(vals)] + vals
-                self.codebook.append(vals)
-                self.midpoints.append([(vals[i] + vals[i + 1]) / 2.0 for i in range(len(vals) - 1)])
-                self.mapnames.append(f"{name}{shift}")
+        shifts = 2 ** (self.meta_bits - int(math.log2(next_power_of_2(len(specs)))))
+        num_positive = 2 ** (self.index_bits - 1) - 1
+        for spec in specs:
+            name, val = spec
+            indices = []
+            # build the number line for this spec based on indices of negative values (-maxval is at index 0 of the number line)
+            if name in "fi":
+                nspec = NumberSpec("e2m1fnuz" if name == "f" else "e1m2b1fnuz")
+                # scale the fp4 or int4 numbers up to the compute spec number line
+                scaled = [i * 2 ** (self.emax - nspec.emax) for i in nspec.number_line if i < 0.0]
+                assert len(scaled) == num_positive
+                indices = self.indices_from_vals(scaled)
+                # shift to the top of the number line (negative values)
+                indices = [i - indices[0] for i in indices]
+            elif name in "ps":
+                assert val
+                incr, idx = val, 0
+                for _ in range(num_positive):
+                    indices.append(idx)
+                    idx += incr
+                    if name == "p":
+                        incr += 1
+            for shift in range(shifts):
+                vals = self.vals_from_indices([i + shift for i in indices if self.number_line[i + shift] < 0.0])
+                while len(vals) < num_positive + 1:
+                    vals.append(-0.0)
+                self.add_mapping(vals + [-v for v in reversed(vals)], f"{name}{shift}")
 
     def _find_torch_dtype(self) -> torch.dtype | None:
         if self.is_uint:
