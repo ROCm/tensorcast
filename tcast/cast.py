@@ -158,7 +158,7 @@ class Cast:
                 scale = (scale - dtype.sspec.scale.bias).exp2()
             x /= scale  # scale x into range of the target dtype
             valexp = (cls.safe_frexp(x) - 1).clamp_min(dtype.nspec.emin)  # get the independent exponents, clipped to emin
-            rscale = (dtype.nspec.mbits - valexp).clamp_min(0).exp2()  # TODO(ericd) check this clamp
+            rscale = (dtype.nspec.mbits - valexp).exp2()
             x = cls._round(x * rscale).div(rscale).clamp(-dtype.nspec.maxfloat, dtype.nspec.maxfloat) * scale
         if not (dtype.is_tensor or noreshape):
             x = dtype.sspec.revert_tensor(x)
@@ -169,13 +169,13 @@ class Cast:
         """Virtual cast."""
         if ret := cls._run_extension(tensor, dtype, "vcast"):
             return ret
-        xtype, x = tensor.dtype, tensor.clone()
+        xtype, x, sd = tensor.dtype, tensor.clone(), None
         if dtype.is_unscaled:
             q = cls._cast_unscaled(x, dtype.nspec).to(xtype)
         else:
             sd = cls._get_scales(x, dtype)
             q = cls._apply_scales(x, dtype, sd.scale, sd.zero, sd.offset).to(xtype)
-        return ScaledTensor(tensor=q, scaledata=ScaleData(scale=sd.scale, zero=sd.zero, offset=sd.offset))
+        return ScaledTensor(tensor=q, scaledata=sd)
 
     @classmethod
     def _vcast_codebook(
