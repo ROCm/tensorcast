@@ -128,6 +128,8 @@ class Cast:
                 scale = (scale - dtype.sspec.scale.bias).exp2()
             tmap = dtype.nspec.get_mapping(select, pos_only=True, torch_dtype=x.dtype, device=x.device)
             tmid = dtype.nspec.get_midpoints(select, pos_only=True, torch_dtype=x.dtype, device=x.device)
+            if x.ndim == 1:
+                scale = scale.squeeze()
             t = x / scale  # scale x into range of the compute dtype, which is where the codebooks are
             out = torch.zeros_like(x)
             tabs = t.abs()
@@ -138,10 +140,14 @@ class Cast:
                 out = torch.where(tabs <= tmid[..., 0], tmap[..., 0], out)
                 for i in range(tmap.shape[-1]):
                     out = torch.where(tabs >= tmid[..., i], tmap[..., i], out)
-            else:
+            elif isinstance(select, int):
                 out[tabs < tmid[0]] = 0.0
                 for i in range(tmap.shape[-1]):
                     out[tabs >= tmid[i]] = tmap[i]
+            else:
+                for i in range(tmap.shape[-1]):
+                    ge = tabs >= tmid[:, i]
+                    out[ge] = tmap[ge, i]
             x = out * t.sign() * scale
         elif dtype.nspec.is_uint:
             assert not dtype.sspec.is_subtile
@@ -179,7 +185,7 @@ class Cast:
 
     @classmethod
     def _vcast_codebook(
-        cls, x: torch.Tensor, dtype: DataType, scale: torch.Tensor = None, better: Callable = None
+        cls, x: torch.Tensor, dtype: DataType, scale: torch.Tensor = None, better: Callable = None, noreshape: bool = False
     ) -> ScaledTensor:
         """Cast a tensor to multiple datatypes based on tile/subtile content."""
 
@@ -191,10 +197,11 @@ class Cast:
         for i in range(dtype.nspec.num_mappings):
             if i == 0:
                 if scale is None:
-                    scale = cls._get_scales(x, dtype).scale
-                x = dtype.sspec.reshape_tensor(x, dtype.sspec.is_subtile)
-                if dtype.sspec.is_subtile:
-                    scale = scale.unsqueeze(-1)
+                    scale = cls._get_scales(x, dtype, noreshape).scale
+                if not noreshape:
+                    x = dtype.sspec.reshape_tensor(x, dtype.sspec.is_subtile)
+                    if dtype.sspec.is_subtile:
+                        scale = scale.unsqueeze(-1)
                 q = cls._apply_scales(x, dtype, scale, None, select=i, noreshape=True)
                 out = q.clone()
                 codebook = torch.zeros(q.shape[:-1], dtype=torch.int8, device=x.device)
@@ -256,17 +263,19 @@ class Cast:
         cls.roundmode = roundmode if roundmode else saveround
         cls.scalemode = scalemode if scalemode else savescale
         cls.compmode = compmode if compmode else savecomp
-        if dtype.is_codebook:
-            scale = scaledata.scale if scaledata else None
-            stensor = cls._vcast_codebook(x, dtype, scale, better)
-        elif castmode == "prescaled":
+        if castmode == "prescaled":
             stensor = ScaledTensor(
-                tensor=cls._apply_scales(x, dtype, scaledata.scale, scaledata.zero, codebook=scaledata.codebook, select=select),
+                tensor=cls._apply_scales(
+                    x, dtype, scaledata.scale, scaledata.zero, codebook=scaledata.codebook, select=select, noreshape=noreshape
+                ),
                 scaledata=scaledata,
             )
         elif castmode == "scale":
             sd = cls._get_scales(x, dtype, noreshape=noreshape)
             stensor = ScaledTensor(scaledata=sd)
+        elif dtype.is_codebook:
+            scale = scaledata.scale if scaledata else None
+            stensor = cls._vcast_codebook(x, dtype, scale, better, noreshape)
         else:
             stensor = cls._vcast(x, dtype)
         cls.roundmode = saveround
