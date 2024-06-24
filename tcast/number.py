@@ -147,32 +147,58 @@ class NumberSpec:
         self.mapnames.append(mapname)
 
     def get_mapping(
-        self, index: int = None, pos_only: bool = False, torch_dtype: torch.dtype = torch.float32, device: torch.device = "cuda"
+        self,
+        index: int | torch.Tensor = None,
+        pos_only: bool = False,
+        torch_dtype: torch.dtype = torch.float32,
+        device: torch.device = "cuda",
     ) -> torch.Tensor:
         """Return one or all of the codebooks as a tensor."""
         if not self.is_codebook:
             raise RuntimeError("NumberSpec.get_mapping called for non-codebook number spec.")
-        if index is not None:
+        if isinstance(index, int):
             if index >= len(self.codebook):
                 raise ValueError(f"codebook: getting mapping {index} when there are only {len(self.codebook)}.")
             vals = [i for i in self.codebook[index] if i > 0.0] if pos_only else self.codebook[index]
-        else:
-            vals = [[i[j] for j in range(len(i)) if i[j] > 0.0] for i in self.codebook] if pos_only else self.codebook
-        return torch.tensor(vals, dtype=torch_dtype, device=device)
+            return torch.tensor(vals, dtype=torch_dtype, device=device)
+        vals = [[i[j] for j in range(len(i)) if i[j] > 0.0] for i in self.codebook] if pos_only else self.codebook
+        vals = torch.tensor(vals, dtype=torch_dtype, device=device)
+        if index is None:
+            return vals
+        maxidx = index.max().item()
+        if maxidx >= len(self.codebook):
+            raise ValueError(f"codebook: getting mapping {maxidx} when there are only {len(self.codebook)}.")
+        vtensor = torch.zeros(index.numel(), vals.shape[1], dtype=torch_dtype, device=device)
+        for i in range(len(self.codebook)):
+            vtensor[index == i] = vals[i]
+        return vtensor
 
     def get_midpoints(
-        self, index: int = None, pos_only: bool = False, torch_dtype: torch.dtype = torch.float32, device: torch.device = "cuda"
+        self,
+        index: int | torch.Tensor = None,
+        pos_only: bool = False,
+        torch_dtype: torch.dtype = torch.float32,
+        device: torch.device = "cuda",
     ) -> torch.Tensor:
         """Return one or all of the midpoint vectors as a tensor."""
         if not self.is_codebook:
             raise RuntimeError("NumberSpec.get_midpoints called for non-codebook number spec.")
-        if index is not None:
+        if isinstance(index, int):
             if index >= len(self.midpoints):
-                raise ValueError(f"codebook: getting codebook {index} when there are only {len(self.midpoints)}.")
+                raise ValueError(f"codebook: getting mapping {index} when there are only {len(self.midpoints)}.")
             vals = [i for i in self.midpoints[index] if i > 0.0] if pos_only else self.midpoints[index]
-        else:
-            vals = [[i[j] for j in range(len(i)) if i[j] > 0.0] for i in self.midpoints] if pos_only else self.midpoints
-        return torch.tensor(vals, dtype=torch_dtype, device=device)
+            return torch.tensor(vals, dtype=torch_dtype, device=device)
+        vals = [[i[j] for j in range(len(i)) if i[j] > 0.0] for i in self.midpoints] if pos_only else self.midpoints
+        vals = torch.tensor(vals, dtype=torch_dtype, device=device)
+        if index is None:
+            return vals
+        maxidx = index.max().item()
+        if maxidx >= len(self.midpoints):
+            raise ValueError(f"codebook: getting mapping {maxidx} when there are only {len(self.midpoints)}.")
+        vtensor = torch.zeros(index.numel(), vals.shape[1], dtype=torch_dtype, device=device)
+        for i in range(len(self.midpoints)):
+            vtensor[index == i] = vals[i]
+        return vtensor
 
     def mapname(self, index: int) -> str:
         if not self.is_codebook:
@@ -236,7 +262,9 @@ class NumberSpec:
                         raise NotImplementedError(f"NumberSpec: codebook index bits must be 4, not {self.index_bits}.")
                     self.codebook, self.midpoints, self.mapnames = [], [], []
                     if self._implicit:
-                        if matches := list(re.finditer(r"([ipsf])(\d)?", icode)):
+                        # the optional digits are for p (progressive) and are the initial increment and starting offset
+                        # the initial increment defaults to 0 and the starting offset (from the top) defaults to 0
+                        if matches := list(re.finditer(r"([ipsf])(\d)?(\d)?", icode)):
                             self._populate_implicit(tuple(m.groups() for m in matches))
                         else:
                             raise ValueError(f"NumberSpec: code {name} is not a valid implicit codebook.")
@@ -314,12 +342,14 @@ class NumberSpec:
     def _populate_implicit(self, specs: list[tuple]) -> None:
         """Populate the fields of the implicit spec."""
         shifts = 2 ** (self.meta_bits - int(math.log2(next_power_of_2(len(specs)))))
+        shift_incr = 2 if shifts < 2**self.mbits else 1
         num_positive = 2 ** (self.index_bits - 1) - 1
         for spec in specs:
-            name, val = spec
-            if isinstance(val, str):
-                val = int(val)
+            name, value, offset = spec
+            value = int(value) + 1 if isinstance(value, str) else 1
+            offset = int(offset) if isinstance(offset, str) else 0
             indices = []
+            nstr = name
             # build the number line for this spec based on indices of negative values (-maxval is at index 0 of the number line)
             if name in "fi":
                 nspec = NumberSpec("e2m1fnuz" if name == "f" else "e1m2b1fnuz")
@@ -330,18 +360,19 @@ class NumberSpec:
                 # shift to the top of the number line (negative values)
                 indices = [i - indices[0] for i in indices]
             elif name in "ps":
-                assert val
-                incr, idx = val, 0
+                incr, idx = value, offset
+                nstr = f"{name}{value}"
                 for _ in range(num_positive):
                     indices.append(idx)
                     idx += incr
                     if name == "p":
                         incr += 1
-            for shift in range(shifts):
+            for s in range(shifts):
+                shift = s * shift_incr
                 vals = self.vals_from_indices([i + shift for i in indices if self.number_line[i + shift] < 0.0])
                 while len(vals) < num_positive + 1:
                     vals.append(-0.0)
-                self.add_mapping(vals + [-v for v in reversed(vals)], f"{name}{shift}")
+                self.add_mapping(vals + [-v for v in reversed(vals)], f"{nstr}_{shift}")
 
     def _find_torch_dtype(self) -> torch.dtype | None:
         if self.is_uint:
