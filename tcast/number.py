@@ -342,7 +342,7 @@ class NumberSpec:
     def _populate_implicit(self, specs: list[tuple]) -> None:
         """Populate the fields of the implicit spec."""
         shifts = 2 ** (self.meta_bits - int(math.log2(next_power_of_2(len(specs)))))
-        shift_incr = 2 if shifts < 2**self.mbits else 1
+        shift_incr = 2 if self.meta_bits > 1 and shifts < 2**self.mbits else 1
         num_positive = 2 ** (self.index_bits - 1) - 1
         for spec in specs:
             name, value, offset = spec
@@ -352,13 +352,14 @@ class NumberSpec:
             nstr = name
             # build the number line for this spec based on indices of negative values (-maxval is at index 0 of the number line)
             if name in "fi":
+                offset = int(spec[1]) if isinstance(spec[1], str) else 0
                 nspec = NumberSpec("e2m1fnuz" if name == "f" else "e1m2b1fnuz")
                 # scale the fp4 or int4 numbers up to the compute spec number line
                 scaled = [i * 2 ** (self.emax - nspec.emax) for i in nspec.number_line if i < 0.0]
                 assert len(scaled) == num_positive
                 indices = self.indices_from_vals(scaled)
                 # shift to the top of the number line (negative values)
-                indices = [i - indices[0] for i in indices]
+                indices = [i - indices[0] + offset for i in indices]
             elif name in "ps":
                 incr, idx = value, offset
                 nstr = f"{name}{value}"
@@ -372,7 +373,7 @@ class NumberSpec:
                 vals = self.vals_from_indices([i + shift for i in indices if self.number_line[i + shift] < 0.0])
                 while len(vals) < num_positive + 1:
                     vals.append(-0.0)
-                self.add_mapping(vals + [-v for v in reversed(vals)], f"{nstr}_{shift}")
+                self.add_mapping(vals + [-v for v in reversed(vals)], f"{nstr}_{shift+offset}")
 
     def _find_torch_dtype(self) -> torch.dtype | None:
         if self.is_uint:
