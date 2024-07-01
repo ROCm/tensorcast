@@ -2,8 +2,7 @@
 
 # TensorCast (tcast)
 
-TensorCast is a casting/quantization library in development that is currently in the process of becoming an open source repo.
-It is based on PyTorch 2.2+.
+TensorCast is a casting/quantization library in development based on PyTorch 2.2+.
 
 The scope of TensorCast is defining datatypes and converting tensors between datatypes.  A "datatype" is a number format
 specification combined with an optional scaling specification.  A "cast" is the conversion of a tensor from one datatype
