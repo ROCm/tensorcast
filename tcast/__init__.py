@@ -103,7 +103,7 @@ def get_scales(
 def vcast(
     x: torch.Tensor,
     dtype: DataType,
-    scaledata: ScaleData = None,
+    scaledata: ScaleData | None = None,
     roundmode: RoundMode = None,
     scalemode: ScaleMode = None,
     compmode: ComputeMode = None,

@@ -134,8 +134,8 @@ class ScaleSpec:
         if self.tile is None:
             self.is_tensor = True
         else:
-            self.is_tile = self.tile != 0 or self.tile2 != 0
-            self.is_channel = not self.is_tile
+            self.is_tile = self.tile != 0
+            self.is_channel = self.tile == 0
 
     def _check(self):
         prefix = f"ScaleSpec: '{self.name}'"

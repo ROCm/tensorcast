@@ -110,7 +110,7 @@ class Cast:
         zero: torch.Tensor = None,
         offset: torch.Tensor = None,
         codebook: torch.Tensor = None,
-        select: int = None,
+        select: int | torch.Tensor | None = None,
         noreshape: bool = False,
     ) -> torch.Tensor:
         """Given scales, return vcast tensor."""

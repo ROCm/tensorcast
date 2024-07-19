@@ -65,34 +65,27 @@ class DataType:
             return self._name
         return str(self)
 
-    def bits_per_value(self, tensor: torch.Tensor) -> float:
+    def bits_per_value(self, tensor: torch.Tensor | None) -> float:
         """Given scaling metadata and codebook metadata, how many bits per value?  Does not include codebook tables themselves."""
-        if self.is_unscaled:
+        if self.is_unscaled or (tensor is None and (self.is_tensor or self.is_channel)):
             return float(self.nspec.bits)
+        if self.is_2d:
+            raise NotImplementedError("2D scaling not yet implemented.")
         scale_bits = float(self.sspec.scale.bits + (self.sspec.zero.bits if self.sspec.zero else 0))
-        if self.is_tensor or self.sspec.tile == 0 or self.sspec.tile2 == 0:
-            if tensor is None:
-                raise ValueError("DataType.bits_per_value requires a tensor for tensor-scaled or channel-scaled datatypes.")
-            if self.is_tensor:
-                return (scale_bits + self.nspec.bits * tensor.numel()) / tensor.numel()
-            if self.is_channel:
-                csize = tensor.size(self.sspec.dim)
-                return (scale_bits * tensor.numel() / csize + self.nspec.bits * tensor.numel()) / tensor.numel()
-            # at this point, we have 2D scale with one dimension being a channel
-            csize = tensor.size(self.sspec.dim if self.sspec.tile == 0 else self.sspec.dim2)
-            num_tiles = tensor.numel() // csize / tensor.size(self.sspec.dim if self.sspec.tile != 0 else self.sspec.dim2)
-            return (num_tiles * scale_bits + tensor.numel()) / tensor.numel()
-        tsize = self.sspec.tile * (self.sspec.tile2 if self.is_2d else 1)
-        ssize = (self.sspec.subtile * (self.sspec.subtile2 if self.is_2d else 1)) if self.is_subtile else tsize
-        subtiles_per_tile = tsize // ssize
+        if self.is_tensor:
+            return (scale_bits + self.nspec.bits * tensor.numel()) / tensor.numel()
+        if self.is_channel:
+            assert self.sspec.tile == 0
+            csize = tensor.size(self.sspec.dim)
+            return (scale_bits * tensor.numel() / csize + self.nspec.bits * tensor.numel()) / tensor.numel()
+        assert self.is_tile
+        tsize = self.sspec.tile
+        ssize = self.sspec.subtile if self.is_subtile else tsize
+        meta_bits = (self.sspec.offset if self.is_offset else 0) + (
+            self.nspec.meta_bits if self.is_codebook else 0
+        ) * tsize // ssize
         value_bits = tsize * (self.nspec.index_bits if self.is_codebook else self.nspec.bits)
-        meta_bits = scale_bits
-        if self.is_codebook:
-            meta_bits += self.nspec.meta_bits * subtiles_per_tile
-        if self.is_offset:
-            assert not self.is_codebook
-            meta_bits += self.sspec.offset * subtiles_per_tile
-        return (meta_bits + value_bits) / tsize
+        return (scale_bits + meta_bits + value_bits) / tsize
 
     def __str__(self):
         s = self.nspec.name
