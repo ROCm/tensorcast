@@ -64,9 +64,9 @@ def scale(code: str) -> ScaleSpec:
     return ScaleSpec(code)
 
 
-def datatype(nspec: str | NumberSpec, sspec: str | ScaleSpec = None, name: str = None) -> DataType:
+def datatype(nspec: str | NumberSpec, sspec: str | ScaleSpec = None, name: str = None, export: bool = False) -> DataType:
     """Create an implicitly scaled or unscaled datatype from a number spec code."""
-    return DataType(nspec, sspec, name)
+    return DataType(nspec, sspec, name, export)
 
 
 def cast(x: torch.Tensor, dtype: DataType, roundmode: RoundMode = None, scalemode: ScaleMode = None) -> torch.Tensor:

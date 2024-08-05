@@ -91,6 +91,12 @@ class Cast:
             rscale = (dtype.nspec.mbits - valexp).exp2()
             x = cls._round(x * rscale).div(rscale).clamp(-dtype.nspec.maxfloat, dtype.nspec.maxfloat)
             x /= nscale
+            if dtype.export:
+                x_export = nscale*x*rscale
+                meta_export = dtype.sspec.scale.bias-torch.log2((nscale*rscale))
+                x = dtype.sspec.revert_tensor(x)
+                return {'x': x.to(xtype), 'x_export': x_export, 'meta_export': meta_export}
+                
         x = dtype.sspec.revert_tensor(x)
         return x.to(xtype)
 
