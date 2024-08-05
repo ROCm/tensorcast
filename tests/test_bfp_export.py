@@ -20,22 +20,3 @@ def test_bfp(datatype, roundmode, block_size):
     compare_2(tensor_bfp, tensor_tcast)
 
 
-tensor = torch.randn(16, 1024).float()
-p1 = "int8"
-p2 = "e8m0_t8"
-tcast_dt = tcast.datatype(p1, p2, export=True)
-tensor_bfp = tensor_to_bfp(tensor, 1, tcast_dt, "even")
-tensor_tcast_d = tcast.cast(tensor, dtype=tcast_dt, roundmode="even")
-tensor_tcast = tensor_tcast_d["x"]
-compare_2(tensor_bfp, tensor_tcast)
-x_int = tensor_tcast_d["x_export"]
-x_po2 = tensor_tcast_d["meta_export"]
-print(f"x.shape: {tensor_tcast.shape}, x_int.shape: {x_int.shape}, x_po2.shape: {x_po2.shape}")
-
-# number of private bits = tcast_dt.nspec.mbits+2
-for _i in range(1):
-    private = x_int[_i].numpy().astype(np.int8) # this is int
-    shared = x_po2[_i,0].numpy().astype(np.uint8) # this is int
-    print(f"private: {private}, shared: {shared}")
-    print(f"private: {pack('=8b', *private).hex()}, shared: {pack('=B', shared).hex()}")
-
