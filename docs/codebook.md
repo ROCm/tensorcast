@@ -66,8 +66,8 @@ fp5 (e2m2fnuz).  Patterns created and shifted up and down this number line.
 These patterns can be based on a specific number type, e.g. fp4 or int4.  Implicit codebooks are currently *symmetric only*, so the non-negative value mappings for both fp4 and int4 look like this:
 
 <div align="center">
-    <img src="./CB41FI_dark.png#gh-dark-mode-only", alt="CB41FI", width=256px>
-    <img src="./CB41FI_light.png#gh-light-mode-only", alt="CB41FI", width=256px>
+    <img src="./CB41FI_dark.png#gh-dark-mode-only", alt="CB41FI", width=128>
+    <img src="./CB41FI_light.png#gh-light-mode-only", alt="CB41FI", width=128>
 </div>
 </br>
 
@@ -85,8 +85,8 @@ type number line from the top of the number line.  One or more positions can be 
 an fp4 pattern that is shifted 1, 3, 4, and 6 positions from the top of e2m3fnuz, we encode it as `cb42f1346`.
 
 <div align="center">
-    <img src="./CB42F1346_dark.png#gh-dark-mode-only", alt="CB42F1346", width=256px>
-    <img src="./CB42F1346_light.png#gh-light-mode-only", alt="CB42F1346", width=256px>
+    <img src="./CB42F1346_dark.png#gh-dark-mode-only", alt="CB42F1346", width=128>
+    <img src="./CB42F1346_light.png#gh-light-mode-only", alt="CB42F1346", width=128>
 </div>
 </br>
 
@@ -108,8 +108,8 @@ notation is `m[<n>]`, where "n" defaults to 1, and is the number of mantissa bit
 Thus, `cb41fm` or `cb41m1` would produce the following:
 
 <div align="center">
-    <img src="./CB41FM_dark.png#gh-dark-mode-only", alt="CB41FM", width=256px>
-    <img src="./CB41FM_light.png#gh-light-mode-only", alt="CB41FM", width=256px>
+    <img src="./CB41FM_dark.png#gh-dark-mode-only", alt="CB41FM", width=128>
+    <img src="./CB41FM_light.png#gh-light-mode-only", alt="CB41FM", width=128>
 </div>
 </br>
 
@@ -134,8 +134,8 @@ of prime bits in the two terms.
 In implicit codebooks, the equivalent is to divide the values in the pattern by 2.
 
 <div align="center">
-    <img src="./CB51IE_dark.png#gh-dark-mode-only", alt="CB51IE", width=256px>
-    <img src="./CB51IE_light.png#gh-light-mode-only", alt="CB51IE", width=256px>
+    <img src="./CB51IE_dark.png#gh-dark-mode-only", alt="CB51IE", width=128>
+    <img src="./CB51IE_light.png#gh-light-mode-only", alt="CB51IE", width=128>
 </div>
 </br>
 
@@ -153,8 +153,8 @@ and "offset" (default 0) is the distance from the top of the number line to the 
 A pair of progressive mappings, `cb41p1p2`:
 
 <div align="center">
-    <img src="./CB41P1P2_dark.png#gh-dark-mode-only", alt="CB41P1P2", width=256px>
-    <img src="./CB41P1P2_light.png#gh-light-mode-only", alt="CB41P1P2", width=256px>
+    <img src="./CB41P1P2_dark.png#gh-dark-mode-only", alt="CB41P1P2", width=128>
+    <img src="./CB41P1P2_light.png#gh-light-mode-only", alt="CB41P1P2", width=128>
 </div>
 </br>
 
