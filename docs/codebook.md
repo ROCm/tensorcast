@@ -2,39 +2,43 @@
 
 # Codebooks
 
+A codebook is a mechanism by which the values in a tile (or block, or group) of a tensor can be represented by an
+index that selects a compute value from a lookup table.  Each lookup table contains 2<sup>bits</sup> compute
+values, where *bits* is the width of each encoded value in the tile, and in practice should be between 2 and 6 bits.
+The values in the lookup table are a (possibly very small) subset of the values representable in the compute
+datatype.
+
+Because each individual tile may best quantize to a different subset of compute values, a codebook has multiple
+lookup tables, which are indexed by a value shared by the tile, similar to the sharing of a scale factor.  The
+lookup tables in the codebook and the mappings from index to compute value in each lookup table are typically
+determined through clustering methods.  A codebook is a shared resource, which makes its creation and population
+a challenging optimization problem.
+
 Codebooks in TensorCast are of two types: a generic codebook in which the codebook mappings (lookup tables)
 are added to the NumberSpec instance after instantiation; and "implicit" codebooks in which the mappings are
-generated during instantiation from the string code passed to the NumberSpec constructor.  Beyond that
+generated during instantiation from the string code passed to the Codebook constructor.  Beyond that
 difference, they have the same cast/compression/upcast behavior.
 
-General codebook creation is outside the scope of TensorCast; there is no support for clustering, centroid
-optimization or selection of weights that share a codebook. Dynamic cast is supported via a binary search
+A codebook consists of:
+
+* an unscaled compute type such as e4m3fn, e2m3fnuz, etc.
+* the number of metadata bits needed to select a mapping
+* the number of index bits needed to select a compute value within a mapping
+* the matrix of size 2<sup>metadata</sup> x 2<sup>index</sup> containing the compute values to look up
+
+General codebook definition is outside the scope of TensorCast; there is no current support for clustering,
+centroid optimization or selection of weights that share a codebook. Dynamic cast is supported via a binary search
 through each mapping in the codebook, with the mapping selection determined by a metric supplied through
 the cast call.  This is inherently slower than a standard number spec, and illustrates the challenges for
 dynamic quantization of tensors during inference (activations) and training (weights, activations, gradients).
-
-## Codebook Creation
-
-The tcast api includes a creation function called `number` that takes a string code or a `torch.dtype` and
-returns either a `NumberSpec` or a `Codebook` (which is a subclass of `NumberSpec`).  A `Codebook` is returned
-if the input is a string beginning with "cb" (case insensitive).
-
-```python
-    codebook = tcast.number("cb41fi_e2m3fnuz")
-```
-
-Codebooks can also be created via contstructor:
-
-```python
-    codebook = tcast.Codebook("cb42_e4m3fn_mycodebook")
-```
+<br></br>
 
 ## Codebook String Codes
 
 A codebook is defined with a string that has either two or three substrings separated by underscores.  The first
-describes the codebook and the second is the number specification code for the compute type which which the codebook
+describes the codebook and the second is the number specification code for the compute type with which the codebook
 will be populated.  A third, optional substring is a concise name by which that codebook will be distinguished from
-other codebooks, as the initial description may be too vague ("cb42") or too long and cryptic ("cb42f6431").
+other codebooks, as the initial description may be too vague ("cb42") or too long and cryptic ("cb42f1346").
 
 The generic codebook description is of the form:
 
@@ -43,35 +47,179 @@ The generic codebook description is of the form:
 ```
 
 `vbits` is a single digit that is the bit width of the values that are indices into a specific mapping lookup table.
-`mbits` is a single digit that is the number of bits of metadata that selects the mapping lookup table. `desc` is a
-code specific to implicit codebook mapping creation (described below) and is not used for generic codebooks.  `cspec`
-is the `NumberSpec` code for the compute type contained in the codebook lookup tables. `label` is the optional
-alternative codebook name.
+`mbits` is a single digit that is the number of bits of metadata that select the mapping lookup table. `desc` is a
+code specific to implicit codebook mapping creation (described [below](#implicit-codebook-description-encoding))
+and is not used for generic codebooks.  `cspec` is the `NumberSpec` code for the compute type contained in the
+codebook lookup tables. `label` is the optional alternative codebook name.
 
-The codebook dimensions, then, are 2<sup>mbits</sup> and 2<sup>vbits</sup>, and the codebook ebtries are the size of the
+The codebook dimensions, then, are 2<sup>mbits</sup> and 2<sup>vbits</sup>, and the codebook entries are the size of the
 compute number spec (`NumberSpec(cspec).bits`).
+<br></br>
+
+## Codebook Creation
+
+The tcast API includes a creation function called `number` that takes a string code or a `torch.dtype` and
+returns either a `NumberSpec` or a `Codebook` (which is a subclass of `NumberSpec`).  A `Codebook` is returned
+if the input is a string beginning with "cb" (case insensitive).
+
+```python
+    codebook = tcast.number("cb44_e4m3fn_mycodebook")   # generic codebook, 16x16 fp8
+    codebook.add_mappings(maplists)                     # populate with codebook matrix
+    implicit_codebook = tcast.number("cb41fi_e2m3fnuz") # implicit codebook
+```
+
+Codebooks can also be created via constructor:
+
+```python
+    codebook = tcast.Codebook("cb42_e4m3fn_mycodebook")
+```
+
+<br></br>
 
 ## Implicit Codebook Description Encoding
 
 Implicit codebooks are fixed codebooks that are able to be upcast from encodings to compute values directly
 (or nearly so) in hardware, without the need to store or transfer actual codebook tables.  In TensorCast they
-can also be though of as a shortcut to populate codebooks algorithmically to simplify experimentation.
+can also be thought of as a shortcut to populate codebooks algorithmically to simplify experimentation.
 
-Implicit codebook mappings are ordered subsets of values representable in the compute type. TensorCast considers
-the compute type as a signed integer that corresponds to the bits that represent each value, so -15 to 15 for
-fp5 (e2m2fnuz).  Patterns created and shifted up and down this number line.
+The compute type is viewed as a number line, with all representable values having a corresponding unsigned
+integer index. For e2m3fnuz, for example, there are 64 values, with indices 0-63.  Implicit codebooks are
+*symmetric*, in that each positive value also has a negative, and both 0 and -0 are represented (although the
+latter is `NaN`).  Thus a codebook mapping with 16 entries has 7 unique magnitudes.
 
-### FP4 and INT4 Patterns
+The implicit mappings are pattern-based.  A pattern is a set of indices in the positive value space of the
+compute type that can be shifted as a group up and down the number line.  The description establishes patterns
+and the topmost index of the pattern.  Each shifted pattern is then prefixed with the index for 0.0, then mirrored
+to include negatives, and converted from indices to the actual values and added to the codebook as a mapping.
+The number of mappings described in the encoding must match the number of mappings specified by `mbits` in
+`cb<vbits><mbits>`, i.e. 2<sup>mbits</sup>.
 
-These patterns can be based on a specific number type, e.g. fp4 or int4.  Implicit codebooks are currently *symmetric only*, so the non-negative value mappings for both fp4 and int4 look like this:
+There are four types of patterns used:
+
+* "f": floating point distribution
+* "i": integer distribution
+* "p": progressive distribution (distance between value indices into the compute number line increase with each value)
+* "s": static distribution (distance between value indices into the compute number line is constant)
+
+The codebook mappings are variations of these patterns.  These mappings are specified through one or more clauses
+beginning with "f", "i", "p", or "s", and containing modifiers with further information.
+
+>Note: legal encodings will raise an exception if the resulting mappings cannot be represented in the compute type.
+
+### F pattern (floating point)
+
+This pattern is the set of positive values in fp\<vbits\>, upcast to the compute type.  It is only valid for vbits
+in [3, 5]. The number format is one of e2m0, e2m1, e2m2.  Scaled to a top exponent of 0, the positive values are:
+
+format| values
+-------|--------
+e2m0   | 0.25, 0.5, 1.0
+e2m1   | 0.125, 0.25, 0.375, 0.5, 0.75, 1.0, 1.5
+e2m2   | 0.0625, 0.125, 0.1875, 0.25, 0.3125, 0.375, 0.4375, 0.5, 0.625, 0.75, 0.875, 1.0, 1.25, 1.5, 1.75
+
+These values are then mapped to the unscaled compute number line (in this case, e2m3fnuz):
+
+format | e2m3 values | e2m3 indices
+-------|--------|------
+e2m1   | 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0 | 36, 40, 44, 48, 52, 56, 60
+
+From here, the pattern is shifted to the top of the distribution:
+
+format | e2m3 indices, shifted to maxval
+-------|--------------
+e2m1   | 39, 43, 47, 51, 55, 59, 63
+
+These are the indices that are shifted down by a number specified by the offset indicated by the modifier.  The default
+offset for e2m1 is 3 (which results in the values before the shift to the top, i.e. pure e2m1fnuz).  Otherwise, the
+offset is in [0, 9], and each index is decremented by that offset.
+
+>Note that adjacent fp4 values will not have the same ratio (75% or 50%) after being shifted by index.
+
+The simple syntax for the modifiers of the "f" clause is `f[<offsets>]`, where `offsets` is optional, and when present is
+one or more digits indicating the decrement from the top of the compute number line.  If `offsets` is omitted, the
+default for that fp3/fp4/fp5 is used, and one mapping is generated, otherwise the number of offsets is the number of
+mappings generated.
+
+#### E modifier
+
+An alternative syntax adds the "e" modifier, with the syntax `f[<offsets>][e[<eoffsets>]]`.  Here, `eoffsets` is one or
+more digits in [0, 3], and modifies the pattern(s) generated by `f[<offsets>]` by an additional decrement that reduces
+the exponent in the compute value by the number(s) in `eoffsets`.  This is only useful when using subtiles, and serves
+to target a pattern to a subtile that has no values with the same exponent as the tile exponent, and is one option for
+dealing with outliers by reducing underflow.
+
+If the "e" modifier is not present, behavior is equivalent to e0.  If the "e" is present with no trailing digits,
+behavior is equivalent to "e01".  The number of mappings generated by each "f" clause is:
+
+```python
+max(1, len(offsets)) * max(1, len(eoffsets))
+```
+
+### I pattern (integer)
+
+This pattern is the set of positive values in int\<vbits\>, upcast to the compute type.  It is only valid for vbits
+in [3, 5]. The number format is one of int3, int4, int5.  Scaled to (-2, 2), the positive values are:
+
+format| values
+-------|--------
+int3   | 0.25, 0.5, 1.0
+int4   | 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75
+int5   | 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0, 1.125, 1.25, 1.375, 1.5, 1.625, 1.75, 1.875
+
+From here, the syntax and behavior are identical to the "f" pattern, including the "e" modifier.  An example
+with the "e" modifier (`cb61ie_e2m3fnuz_mx6`) can be seen [here](#implicit-exponent-offset).  An example of
+combining the "f" and "i" clauses (`cb41fi_e2m2fnuz`) can be seen [here](#fp4-and-int4-combined-pattern).
+
+### P pattern (progressive)
+
+This pattern is not based on an fp or int distribution, but instead is entirely index based.  The syntax
+of the clause is `p<interval>[<offsets>]`, where `interval` is the initial decrement (from the first/highest
+index in the pattern to the second).  Each subsequent pattern index is decremented by `interval + 1`, `interval + 2`,
+etc.  The `offsets` are as in the other pattern types; the default is 0.  A "p" with no modifiers is permitted,
+and will be equivalent to `p10`.
+
+```python
+# produce positive value indices for progressive pattern
+pclause = "p10246"
+interval = 1 if len(pclause) == 1 else int(pclause[1])
+offsets = [0] if len(pclause) == 2 else [int(c) for c in pclause[2:]]
+maxidx = 2 ** compspec.bits - 1
+numpos = 2 ** (index_bits - 1) - 1
+patterns = []
+for o in offsets:
+    pattern = []
+    incr = 0
+    for i in range(numpos):
+        pattern.append(maxidx - o - incr)
+        incr += interval * (i + 1)
+    patterns.append(list(reversed(pattern)))
+```
+
+Zero or more "p" clauses can be combined with any other pattern type clause.
+
+### S pattern (static interval)
+
+This pattern is like the progressive pattern in every way except that the interval remains the same throughout
+the pattern.  This method can concentrate the values in the upper exponents for more precision, or spread them out
+for more dynamic range.
+<br></br>
+
+## Implicit Codebook Examples
+
+>Some examples in this section use compute types that are smaller than what might be implemented for a given platform. This is to minimize the diagram size and complexity.
+
+### FP4 and INT4 Combined Pattern
+
+Both fp4 and int4 upcast losslessly to fp5.  Whereas int4 has more than half its positive values in the top exponent,
+fp4 have 2, 2, 2, and 1 positive values across the top four exponents.  This will lead to fp4 being the preferred
+mapping roughly 70% of the time for weights.
 
 <div align="center">
-    <img src="./CB41FI_dark.png#gh-dark-mode-only", alt="CB41FI", width=128>
-    <img src="./CB41FI_light.png#gh-light-mode-only", alt="CB41FI", width=128>
+    <img src="./CB41FI_dark.png#gh-dark-mode-only", alt="CB41FI", width=200>
+    <img src="./CB41FI_light.png#gh-light-mode-only", alt="CB41FI", width=200>
 </div>
-</br>
 
-This example would be encoded as `cb41fi`, with "f" indicating a standard fp4 (e2m1) pattern, and "i" indicating a
+This example would be encoded as `cb41fi_e2m2fnuz`, with "f" indicating a standard fp4 (e2m1) pattern, and "i" indicating a
 standard int4 pattern.
 
 The "4" in the decription indicates the number of bits in each encoded value.  This tells the codebook that the pattern
@@ -82,13 +230,12 @@ fp4 is e2m1 and fp5 would be e2m2.
 
 The "f" or "i" patterns can have a modifier that specifies the number of positions a pattern is shifted down the compute
 type number line from the top of the number line.  One or more positions can be specified.  For example, if we want
-an fp4 pattern that is shifted 1, 3, 4, and 6 positions from the top of e2m3fnuz, we encode it as `cb42f1346`.
+an fp4 pattern that is shifted 1, 3, 4, and 6 positions from the top of e2m3fnuz, we encode it as `cb42f1346_e2m3fnuz`.
 
 <div align="center">
-    <img src="./CB42F1346_dark.png#gh-dark-mode-only", alt="CB42F1346", width=128>
-    <img src="./CB42F1346_light.png#gh-light-mode-only", alt="CB42F1346", width=128>
+    <img src="./CB42F1346_dark.png#gh-dark-mode-only", alt="CB42F1346", width=200>
+    <img src="./CB42F1346_light.png#gh-light-mode-only", alt="CB42F1346", width=200>
 </div>
-</br>
 
 The blue pattern is actual fp4, which is in position 3 relative to the top of e2m3.
 
@@ -100,18 +247,15 @@ specification.
 ### Implicit Trailing Mantissa Bits
 
 Since the purpose of codebooks is to impart additional precision and/or dynamic range that cannot otherwise be
-represented in the limited bits available, an option is provided to create mappings that have one or more implied
+represented in the limited bits available, an option *could* provided to create mappings that have one or more implied
 trailing mantissa bits.  Suppose the base pattern is e2m1, and an additional mantissa bit was desired. Two patterns
-would be generated for compute type e2m2: one pattern of fp4 with trailing 0, the other with trailing 1.  This
-notation is `m[<n>]`, where "n" defaults to 1, and is the number of mantissa bits.
-
-Thus, `cb41fm` or `cb41m1` would produce the following:
+would be generated for compute type e2m2: one pattern of fp4 with trailing 0, the other with trailing 1.  However,
+this can be accomplished with the previoulsy descibed syntax: `cb41f01_e2m2fnuz`:
 
 <div align="center">
-    <img src="./CB41FM_dark.png#gh-dark-mode-only", alt="CB41FM", width=128>
-    <img src="./CB41FM_light.png#gh-light-mode-only", alt="CB41FM", width=128>
+    <img src="./CB41FM_dark.png#gh-dark-mode-only", alt="CB41FM", width=200>
+    <img src="./CB41FM_light.png#gh-light-mode-only", alt="CB41FM", width=200>
 </div>
-</br>
 
 This pair of mappings represents all but one of the values of fp5, and could be expected to provide precision at
 a level between fp4 and fp5.  When applied to an int4 pattern, the same concept is applied as a fixed point trailing
@@ -134,34 +278,19 @@ of prime bits in the two terms.
 In implicit codebooks, the equivalent is to divide the values in the pattern by 2.
 
 <div align="center">
-    <img src="./CB51IE_dark.png#gh-dark-mode-only", alt="CB51IE", width=128>
-    <img src="./CB51IE_light.png#gh-light-mode-only", alt="CB51IE", width=128>
+    <img src="./CB51IE_dark.png#gh-dark-mode-only", alt="CB51IE", width=200>
+    <img src="./CB51IE_light.png#gh-light-mode-only", alt="CB51IE", width=200>
 </div>
-</br>
-
-This option does require subtiles, as well as sufficient room in the compute type's dynamic range.  As with the "m"
-option, the notation is `e[<n>]`, where "n" defaults to 1, and is the number of offset bits.
 
 ### Progressive Patterns
 
-A progressive pattern starts at or near the top of the compute distribution, and moves down the number line in
-increasing decrements.  A progressive pattern with an initial decrement of one targeting e2m3fnuz would begin
-at 31, decrement by 1 to 30, decrement by 2 to 28, etc.  The benefit is to have more resolution at the highest
-magnitudes, yet extend the dynamic range.  The notation is `p<dec>[<offset>]`, where "dec" is the initial decrement
-and "offset" (default 0) is the distance from the top of the number line to the start of the progression.
-
-A pair of progressive mappings, `cb41p1p2`:
+This example shows two progressive patterns, both with offset 0, with 1 and 2 as the initial interval, mapped to
+compute fp6e2: `cb41p1p2_e2m3fnuz`:
 
 <div align="center">
-    <img src="./CB41P1P2_dark.png#gh-dark-mode-only", alt="CB41P1P2", width=128>
-    <img src="./CB41P1P2_light.png#gh-light-mode-only", alt="CB41P1P2", width=128>
+    <img src="./CB41P1P2_dark.png#gh-dark-mode-only", alt="CB41P1P2", width=200>
+    <img src="./CB41P1P2_light.png#gh-light-mode-only", alt="CB41P1P2", width=200>
 </div>
-</br>
-
-### Static Patterns
-
-A static pattern starts at an "offset" from the top of the compute distribution and decrements by a fixed number.
-The notation is `s<dec>[<offset>]`.
 
 ---
 
