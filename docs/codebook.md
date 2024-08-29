@@ -3,19 +3,22 @@
 # Codebooks
 
 A codebook is a mechanism by which the values in a tile (or block, or group) of a tensor can be represented by an
-index that selects a compute value from a lookup table.  Each lookup table contains 2<sup>bits</sup> compute
-values, where *bits* is the width of each encoded value in the tile, and in practice should be between 2 and 6 bits.
-The values in the lookup table are a (possibly very small) subset of the values representable in the compute
-datatype.
+index that selects a compute value from a lookup table.  Because each individual tile may best quantize to a
+different subset of compute values, a codebook has multiple lookup tables, which are indexed by a value shared by
+the tile, similar to the sharing of a scale factor.  Unlike the scale factor, the metadata that selects the
+lookup table can optionally be at the subtile level.
 
-Because each individual tile may best quantize to a different subset of compute values, a codebook has multiple
-lookup tables, which are indexed by a value shared by the tile, similar to the sharing of a scale factor.  The
-lookup tables in the codebook and the mappings from index to compute value in each lookup table are typically
+Each lookup table contains 2<sup>index_bits</sup> compute values, where *index_bits* is the width of each encoded
+value in the tile, and in practice should be between 2 and 6 bits. The values in the lookup table are a (possibly
+very small) subset of the values representable in the compute datatype.  Selection of the lookup table itself
+is done via metadata at the tile or subtile level.  There are 2<sup>metadata_bits</sup> lookup tables in the codebook.
+
+The lookup tables in the codebook and the mappings from index to compute value in each lookup table are typically
 determined through clustering methods.  A codebook is a shared resource, which makes its creation and population
 a challenging optimization problem.
 
 Codebooks in TensorCast are of two types: a generic codebook in which the codebook mappings (lookup tables)
-are added to the NumberSpec instance after instantiation; and "implicit" codebooks in which the mappings are
+are manually added to the NumberSpec instance after instantiation; and "implicit" codebooks in which the mappings are
 generated during instantiation from the string code passed to the Codebook constructor.  Beyond that
 difference, they have the same cast/compression/upcast behavior.
 
@@ -24,7 +27,7 @@ A codebook consists of:
 * an unscaled compute type such as e4m3fn, e2m3fnuz, etc.
 * the number of metadata bits needed to select a mapping
 * the number of index bits needed to select a compute value within a mapping
-* the matrix of size 2<sup>metadata</sup> x 2<sup>index</sup> containing the compute values to look up
+* the matrix of size 2<sup>metadata_bits</sup> x 2<sup>index_bits</sup> containing the compute values to look up
 
 General codebook definition is outside the scope of TensorCast; there is no current support for clustering,
 centroid optimization or selection of weights that share a codebook. Dynamic cast is supported via a binary search
@@ -43,17 +46,17 @@ other codebooks, as the initial description may be too vague ("cb42") or too lon
 The generic codebook description is of the form:
 
 ```text
-    cb<vbits><mbits>[<desc>]_<cspec>[_<label>]
+    cb<index_bits><metadata_bits>[<desc>]_<cspec>[_<label>]
 ```
 
-`vbits` is a single digit that is the bit width of the values that are indices into a specific mapping lookup table.
-`mbits` is a single digit that is the number of bits of metadata that select the mapping lookup table. `desc` is a
+`index_bits` is a single digit that is the bit width of the values that are indices into a specific mapping lookup table.
+`metadata_bits` is a single digit that is the number of bits of metadata that select the mapping lookup table. `desc` is a
 code specific to implicit codebook mapping creation (described [below](#implicit-codebook-description-encoding))
 and is not used for generic codebooks.  `cspec` is the `NumberSpec` code for the compute type contained in the
 codebook lookup tables. `label` is the optional alternative codebook name.
 
-The codebook dimensions, then, are 2<sup>mbits</sup> and 2<sup>vbits</sup>, and the codebook entries are the size of the
-compute number spec (`NumberSpec(cspec).bits`).
+The codebook dimensions, then, are 2<sup>metadata_bits</sup> and 2<sup>index_bits</sup>, and the codebook entries
+are the size of the compute values (`NumberSpec(cspec).bits`).
 <br></br>
 
 ## Codebook Creation
@@ -71,7 +74,7 @@ if the input is a string beginning with "cb" (case insensitive).
 Codebooks can also be created via constructor:
 
 ```python
-    codebook = tcast.Codebook("cb42_e4m3fn_mycodebook")
+    codebook = tcast.Codebook("cb44_e4m3fn_mycodebook")
 ```
 
 <br></br>
@@ -91,8 +94,7 @@ The implicit mappings are pattern-based.  A pattern is a set of indices in the p
 compute type that can be shifted as a group up and down the number line.  The description establishes patterns
 and the topmost index of the pattern.  Each shifted pattern is then prefixed with the index for 0.0, then mirrored
 to include negatives, and converted from indices to the actual values and added to the codebook as a mapping.
-The number of mappings described in the encoding must match the number of mappings specified by `mbits` in
-`cb<vbits><mbits>`, i.e. 2<sup>mbits</sup>.
+The number of mappings described in the encoding must match the number of mappings specified by `metadata_bits`.
 
 There are four types of patterns used:
 
@@ -104,12 +106,13 @@ There are four types of patterns used:
 The codebook mappings are variations of these patterns.  These mappings are specified through one or more clauses
 beginning with "f", "i", "p", or "s", and containing modifiers with further information.
 
->Note: legal encodings will raise an exception if the resulting mappings cannot be represented in the compute type.
+>Note: syntactically legal encodings will raise an exception if any resulting mappings cannot be represented in the compute type.
 
 ### F pattern (floating point)
 
-This pattern is the set of positive values in fp\<vbits\>, upcast to the compute type.  It is only valid for vbits
-in [3, 5]. The number format is one of e2m0, e2m1, e2m2.  Scaled to a top exponent of 0, the positive values are:
+This pattern is the set of positive values in fp\<index_bits\>, upcast to the compute type.  It is only valid for
+3, 4, or 5 index bits. The number format is one of e2m0, e2m1, e2m2.  **Scaled to (-2, 2)**, the positive
+values are:
 
 format| values
 -------|--------
@@ -130,8 +133,8 @@ format | e2m3 indices, shifted to maxval
 e2m1   | 39, 43, 47, 51, 55, 59, 63
 
 These are the indices that are shifted down by a number specified by the offset indicated by the modifier.  The default
-offset for e2m1 is 3 (which results in the values before the shift to the top, i.e. pure e2m1fnuz).  Otherwise, the
-offset is in [0, 9], and each index is decremented by that offset.
+offset for e2m1 is depends on the compute datatype (which results in the values before the shift to the top, i.e.
+pure e2m1fnuz).  Otherwise, the offset is in [0, 9], and each index is decremented by that offset.
 
 >Note that adjacent fp4 values will not have the same ratio (75% or 50%) after being shifted by index.
 
@@ -143,22 +146,18 @@ mappings generated.
 #### E modifier
 
 An alternative syntax adds the "e" modifier, with the syntax `f[<offsets>][e[<eoffsets>]]`.  Here, `eoffsets` is one or
-more digits in [0, 3], and modifies the pattern(s) generated by `f[<offsets>]` by an additional decrement that reduces
-the exponent in the compute value by the number(s) in `eoffsets`.  This is only useful when using subtiles, and serves
-to target a pattern to a subtile that has no values with the same exponent as the tile exponent, and is one option for
-dealing with outliers by reducing underflow.
+more of 0, 1, 2, and 3, and modifies the pattern(s) generated by `f[<offsets>]` by an additional decrement that reduces
+the exponent in the compute value by the number(s) in `eoffsets`.  This is only useful when using subtiles because
+it serves to target a pattern to a subtile that has no values with the same exponent as the tile exponent, and is one
+option for dealing with outliers by reducing underflow.
 
-If the "e" modifier is not present, behavior is equivalent to e0.  If the "e" is present with no trailing digits,
-behavior is equivalent to "e01".  The number of mappings generated by each "f" clause is:
-
-```python
-max(1, len(offsets)) * max(1, len(eoffsets))
-```
+If the "e" is present with no trailing digits, behavior is equivalent to "e01".  The number of mappings generated by
+each "f" clause is the number of offsets times the number of eoffsets (if any, otherwise 1).
 
 ### I pattern (integer)
 
-This pattern is the set of positive values in int\<vbits\>, upcast to the compute type.  It is only valid for vbits
-in [3, 5]. The number format is one of int3, int4, int5.  Scaled to (-2, 2), the positive values are:
+This pattern is the set of positive values in int\<index_bits\>, upcast to the compute type.  It is only valid for
+index_bits i3, 4, or 5. The number format is one of int3, int4, int5.  Scaled to (-2, 2), the positive values are:
 
 format| values
 -------|--------
@@ -274,6 +273,8 @@ values, a bit of metadata for each subtile (called the "prime" bit) indicates th
 subnormals, but the leading (integer) bit is implied, so that the trailing bit can be used for additional precision.
 In one hardware implementation (not codebooks), a shift of the product is performed based on the presence or absence
 of prime bits in the two terms.
+
+The specifier for MX6 using fp6 compute would be `cb51ie_e2m3_mx6` or `cb51ie01_e2m3_mx6`.
 
 In implicit codebooks, the equivalent is to divide the values in the pattern by 2.
 
