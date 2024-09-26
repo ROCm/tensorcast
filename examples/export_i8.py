@@ -1,7 +1,5 @@
 import tcast
 import torch
-from tests.utils import compare_2, tensor_to_bfp
-from struct import pack, unpack
 import numpy as np
 
 def interleave_bfp16(mantissas, exponents, block):
@@ -20,7 +18,7 @@ def interleave_bfp16(mantissas, exponents, block):
     return i8_array
 
 if __name__ == "__main__":
-    block = 8
+    block = 16
     tensor = (torch.randint(-2048, 2048, (1, block))*torch.randn(1, block)).float()
     tcast_dt = tcast.datatype("int8", "e8m0_t"+str(block), export=True)
     tensor_tcast_d = tcast.cast(tensor, dtype=tcast_dt, roundmode="even")
