@@ -18,5 +18,3 @@ def test_bfp(datatype, roundmode, block_size):
     tensor_tcast_d = tcast.cast(tensor, dtype=tcast_dt, roundmode=roundmode)
     tensor_tcast = tensor_tcast_d["x"]
     compare_2(tensor_bfp, tensor_tcast)
-
-

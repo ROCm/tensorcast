@@ -20,6 +20,7 @@ from .utils import (
     is_power_of_2,
     printoptions,
 )
+from .injector import TorchInjector, MixedPrecisionInjector
 
 __version__ = Path(__file__).with_name("version.txt").open().read().strip()
 
