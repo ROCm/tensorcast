@@ -18,8 +18,9 @@ class DataType:
     is_tensor: bool = False
     is_channel: bool = False
     is_tile: bool = False
+    export: bool = False
 
-    def __init__(self, nspec: str | NumberSpec, sspec: str | ScaleSpec = None, name: str = None):
+    def __init__(self, nspec: str | NumberSpec, sspec: str | ScaleSpec = None, name: str = None, export: bool = False):
         self.nspec = nspec if isinstance(nspec, NumberSpec) else NumberSpec(nspec)
         self._name = name
         self.sspec = sspec if isinstance(sspec, ScaleSpec) else ScaleSpec(sspec) if sspec else None
@@ -29,6 +30,7 @@ class DataType:
         self.is_tile = self.sspec is not None and self.sspec.is_tile
         assert int(self.is_unscaled) + int(self.is_tensor) + int(self.is_channel) + int(self.is_tile) == 1
         self._check()
+        self.export = export
 
     def _check(self):
         prefix = f"DataType: '{self.name}'"
