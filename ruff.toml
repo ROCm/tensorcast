@@ -9,7 +9,7 @@ select = ["E", "F", "I", "W"]
 extend-select = [
     "E501", "UP", "D", "B"
 ]
-ignore = ["D102", "D107", "D105", "B028"]
+ignore = ["D103", "D200", "D210", "D212", "D400", "D102", "D107", "D105", "B028"]
 
 [lint.per-file-ignores]
 "__init__.py" = ["F401", "E402", "F403"]
