@@ -1,63 +1,186 @@
-"""TensorCast: Conversion and compression of arbitrary datatypes."""
-# tcast/__init__.py: package
+#!/usr/bin/env python
+# tcast/__init__.py: tcast package
+# SPDX-License-Identifier: MIT
 
-from pathlib import Path
+"""TensorCast: Specification, conversion and compression of arbitrary datatypes."""
 
 import torch
 
-from .cast import Cast, ComputeMode, RoundMode, ScaleMode
+from .common import CastMode, ComputeMode, Modes, RoundMode, ScaleMode, get_enum
 from .datatype import DataType
-from .extension import Extension
-from .number import NumberSpec
+from .injector import TorchInjector, MixedPrecisionInjector
+from .number import Codebook, NumberLine, NumberSpec
 from .scale import ScaleSpec
+from .tensor import Tensor
+from .torchcast import TorchCast
+from .tritoncast import TritonCast
 from .utils import (
-    TensorCastInternalError,
-    check_literal,
+    cdiv,
+    hadamard_transform,
     is_float8_available,
     is_float8_fnuz_available,
-    is_gpu_available,
-    is_installed,
-    is_power_of_2,
+    is_triton_available,
+    next_power_of_2,
     printoptions,
 )
-from .injector import TorchInjector, MixedPrecisionInjector
 
-__version__ = Path(__file__).with_name("version.txt").open().read().strip()
+__version__ = "0.3.0"
 
 
 def initialize(
-    roundmode: RoundMode = None,
-    scalemode: ScaleMode = None,
-    compmode: ComputeMode = None,
-    ext_create: bool = False,
-    ext_name: str = None,
-    ext_path: Path = None,
-    ext_exec: bool = False,
-    ext_cpu_only: bool = False,
-    ext_verbose: bool = False,
-):
-    """For overriding default modes and/or customizing torch cpp_extension."""
-    if roundmode is not None:
-        check_literal(roundmode, RoundMode)
-        Cast.roundmode = roundmode
-    if scalemode is not None:
-        check_literal(scalemode, ScaleMode)
-        Cast.scalemode = scalemode
-    if compmode is not None or ext_create:
-        if compmode:
-            check_literal(compmode, ComputeMode)
-            Cast.compmode = compmode
-        if ext_create or (compmode is not None and compmode != "torch"):
-            if Cast.extension is not None:
-                if ext_create:
-                    raise RuntimeError("tcast extension has already been created.")
-            else:
-                Cast.extension = Extension(ext_name, ext_path, ext_exec, ext_cpu_only, ext_verbose)
+    roundmode: RoundMode = None, scalemode: ScaleMode = None, computemode: ComputeMode = None, castmode: CastMode = None
+) -> dict:
+    """For overriding default modes in Cast.  Optional."""
+    return Modes.set_modes(roundmode, scalemode, computemode, castmode)
 
 
-def number(code: str) -> NumberSpec:
+#####
+##### Predefined datatypes accessible as tcast.float32, tcast.mxfp8e4, etc
+##### NOTE: bias defaults to 2^(ebits-1) - 1 unless overridden by Z in the eXmYbZ descriptor.
+##### Exceptions are external in torch.float8_e5m2fnuz and torch.float8_e4m3fnuz.
+#####
+
+### unscaled
+
+# torch tensor dtypes
+float32 = DataType(name="float32")
+float16 = DataType(tname="float16")
+bfloat16 = DataType(name="bfloat16")
+float8_e5m2 = DataType(name="float8_e5m2")
+float8_e4m3fn = DataType(name="float8_e4m3fn")
+float8_e5m2fnuz = DataType(name="float8_e5m2fnuz")
+float8_e4m3fnuz = DataType(name="float8_e4m3fnuz")
+
+# OCP 8-bit unscaled datatypes
+bf8 = e5m2 = float8_e5m2
+fp8 = e4m3fn = float8_e4m3fn
+
+# MI300 8-bit unscaled datatypes
+e5m2fnuz = float8_e5m2fnuz
+e4m3fnuz = float8_e4m3fnuz
+
+# IEEE P3109 8-bit unscaled datatypes
+binary8p1 = DataType("e7m0b63inuz", name="binary8p1")
+binary8p2 = DataType("e6m1b32inuz", name="binary8p2")
+binary8p3 = DataType("e5m2b16inuz", name="binary8p3")
+binary8p4 = DataType("e4m3b8inuz", name="binary8p4")
+binary8p5 = DataType("e3m4b4inuz", name="binary8p5")
+binary8p6 = DataType("e2m5b2inuz", name="binary8p6")
+
+### tensor scaled
+
+# scale codes f=float16 (for uintK and int16 only), b=float32, f=e5m3, e=e8m0, i=int8
+# uint has two (scale and zero point)
+
+uint16_ff = DataType("uint16", "float16_float16", "uint16_ff")
+uint16_bb = DataType("uint16", "bfloat16_bfloat16", "uint16_bb")
+uint16_fi = DataType("uint16", "float16_int16", "uint16_fi")
+uint16_bi = DataType("uint16", "bfloat16_int16", "uint16_bi")
+
+uint8_ff = DataType("uint16", "float16_float16", "uint8_ff")
+uint8_bb = DataType("uint16", "bfloat16_bfloat16", "uint8_bb")
+uint8_fi = DataType("uint16", "float16_int8", "uint8_fi")
+uint8_bi = DataType("uint8", "bfloat16_int8", "uint8_bi")
+
+int16_f = DataType("int8", "float16", "int16_f")
+int16_b = DataType("int8", "bfloat16", "int16_b")
+int16_e = DataType("int8", "e8m0", "int16_e")
+
+int8_f = DataType("int8", "float16", "int8_f")
+int8_b = DataType("int8", "bfloat16", "int8_b")
+int8_e = DataType("int8", "e8m0", "int8_e")
+
+e5m2_e = DataType("e5m2", "e8m0", "e5m2_e")
+e4m3_e = DataType("e4m3fn", "e8m0", "e4m3_e")
+
+### channel scaled
+
+# t0 indicates channel, default dim is -1, explicit dim (such as 0) encoded with t0d0
+
+uint16_ff = DataType("uint16", "float16_float16_t0", "uint16_ffc")
+uint16_bb = DataType("uint16", "bfloat16_bfloat16_t0", "uint16_bbc")
+uint16_fi = DataType("uint16", "float16_int16_t0", "uint16_fic")
+uint16_bi = DataType("uint16", "bfloat16_int16_t0", "uint16_bic")
+
+uint8_ffc = DataType("uint8", "float16_float16_t0", "uint8_ffc")
+uint8_bbc = DataType("uint8", "bfloat16_bfloat16_t0", "uint8_bbc")
+uint8_fic = DataType("uint8", "float16_int8_t0", "uint8_fic")
+uint8_bic = DataType("uint8", "bfloat16_int8_t0", "uint8_bic")
+
+int16_fc = DataType("int8", "float16_t0", "int16_fc")
+int16_bc = DataType("int8", "bfloat16_t0", "int16_bc")
+int16_ec = DataType("int8", "e8m0_t0", "int16_ec")
+
+int8_fc = DataType("int8", "float16_t0", "int8_fc")
+int8_bc = DataType("int8", "bfloat16_t0", "int8_bc")
+int8_ec = DataType("int8", "e8m0_t0", "int8_ec")
+
+e5m2_ec = DataType("e5m2", "e8m0_t0", "e5m2_ec")
+e4m3_ec = DataType("e4m3fn", "e8m0_t0", "e4m3_ec")
+
+### tile scaled
+
+# OCP MXFP and MXINT, tile size 32
+
+mxbf8 = mxfp8e5 = DataType("e5m2", "e8m0_t32", "mxfp8e5")
+mxfp8 = mxfp8e4 = DataType("e4m3fn", "e8m0_t32", "mxfp8e4")
+mxbf6 = mxfp6e3 = DataType("e3m2fnuz", "e8m0_t32", "mxfp6e3")
+mxfp6 = mxfp6e2 = DataType("e2m3fnuz", "e8m0_t32", "mxfp6e2")
+mxfp4 = mxfp4e2 = DataType("e2m1fnuz", "e8m0_t32", "mxfp4e2")
+mxint8 = DataType("int8", "e8m0_t32", "mxint8")
+mxint4 = DataType("int4", "e8m0_t32", "mxint4")
+
+# OCP MXFP and MXINT, tile size 16
+
+mxbf8t16 = DataType("e5m2", "e8m0_t16", "mxbf8t16")
+mxfp8t16 = DataType("e4m3fn", "e8m0_t16", "mxfp8t16")
+mxbf6t16 = DataType("e3m2fnuz", "e8m0_t16", "mxbf6t16")
+mxfp6t16 = DataType("e2m3fnuz", "e8m0_t16", "mxfp6t16")
+mxfp4t16 = DataType("e2m1fnuz", "e8m0_t16", "mxfp4t16")
+mxint8t16 = DataType("int8", "e8m0_t16", "mxint8t16")
+mxint4t16 = DataType("int4", "e8m0_t16", "mxint4t16")
+
+# NVF4, tile size 16
+
+nvf4 = DataType("e2m1fnuz", "e4m3_t16", "nvf4")
+
+
+# MSFP (old school Microsoft), tile size 16, exponent scale, subtile size 2, implemented as codebooks
+# BFP16 is essentially OCP MXINT8, but with a tile size of 8
+
+mx9 = DataType("cb81ie_int9", "e8m0_t16s2", "mx9")
+mx6 = DataType("cb51ie_int7", "e8m0_t16s2", "mx6")
+mx4 = DataType("cb31ie_int5", "e8m0_t16s2", "mx4")
+bfp16 = DataType("int8", "e8m0_t8", "bfp16")
+
+### square tile scaled
+
+mxfp4s = DataType("e2m1fnuz", "e8m0_t32_t32", "mxfp4s")
+mxbf6s = DataType("e3m2fnuz", "e8m0_t32_t32", "mxbf6s")
+mxfp6s = DataType("e2m3fnuz", "e8m0_t32_t32", "mxfp6s")
+mxfp8s = DataType("e4m3fn", "e8m0_t32_t32", "mxfp8s")
+mxfp4s16 = DataType("e2m1fnuz", "e8m0_t16_t16", "mxfp4s16")
+mxbf6s16 = DataType("e3m2fnuz", "e8m0_t16_t16", "mxbf6s16")
+mxfp6s16 = DataType("e2m3fnuz", "e8m0_t16_t16", "mxfp6s16")
+mxfp8s16 = DataType("e4m3fn", "e8m0_t16_t16", "mxfp8s16")
+
+###
+### example implicit codebook datatypes for tiles and subtiles
+###
+
+# mxfp4 or mxint4, 8 subtiles, 4.5 bpv
+mxfi4 = DataType("cb41fi_e2m2fnuz", "e8m0_t32s4")
+# mxfp4 with optional trailing mantissa bit, 8 subtiles, 4.5 bpv
+mxfp4m = DataType("cb41f01_e2m2fnuz", "e8m0_t32s4", "mxfp4m")
+# mxfp4 with four different starting exponents, 4 subtiles, 4.5 bpv
+mxfp4e = DataType("cb42fe0123_e3m2fnuz", "e8m0_t32s8", "mxfp4e")
+# mxfp4 shifted 4 times up or down the number line, 4 subtiles, 4.5 bpv
+mxfp4f4 = DataType("cb42f1346_e2m3fnuz", "e8m0_t32s8", "mxfp4f4")
+
+
+def number(code: str | torch.dtype) -> NumberSpec | Codebook:
     """Create a number spec from a string code."""
-    return NumberSpec(code)
+    return Codebook(str(code)) if str(code).lower().startswith("cb") else NumberSpec(code)
 
 
 def scale(code: str) -> ScaleSpec:
@@ -65,98 +188,71 @@ def scale(code: str) -> ScaleSpec:
     return ScaleSpec(code)
 
 
-def datatype(nspec: str | NumberSpec, sspec: str | ScaleSpec = None, name: str = None, export: bool = False) -> DataType:
+def datatype(nspec: str | NumberSpec = None, sspec: str | ScaleSpec = None, name: str = None) -> DataType:
     """Create an implicitly scaled or unscaled datatype from a number spec code."""
-    return DataType(nspec, sspec, name, export)
+    return DataType(nspec, sspec, name)
 
 
-def cast(x: torch.Tensor, dtype: DataType, roundmode: RoundMode = None, scalemode: ScaleMode = None) -> torch.Tensor:
-    """Virtual cast a tensor to a scaled or unscaled datatype."""
-    return Cast.cast(x, dtype, roundmode, scalemode)
+def cast(
+    tensor: torch.Tensor,
+    dtype: DataType | torch.dtype,
+    roundmode: RoundMode | str = None,
+    scalemode: ScaleMode | str = None,
+    computemode: ComputeMode | str = None,
+    castmode: CastMode | str = None,
+    transpose_scale: bool = False,
+) -> torch.Tensor | Tensor:
+    """
+    Virtual, actual or compressed cast of torch.Tensor to dtype.
+
+    Returns torch.Tensor if castmode is "virtual", otherwise tcast.Tensor.
+    transpose_scale is used for channel and tile scaled datatypes, where the scale is applied to the channel or tile.
+    In back propagation, the scale spec can be transposed without having to create a new scale spec.
+    """
+    Modes.set_modes(roundmode, scalemode, computemode, castmode)
+    if not isinstance(tensor, torch.Tensor) or not isinstance(dtype, DataType | torch.dtype):
+        raise ValueError("tcast.cast: tensor and dtype must be torch.Tensor and DataType or torch.dtype")
+    tensor = Tensor(tensor, DataType(str(dtype)) if isinstance(dtype, torch.dtype) else dtype, transpose_scale=transpose_scale)
+    out_dtype = dtype if isinstance(dtype, torch.dtype) else tensor.original_dtype
+    if (
+        Modes.compute in (ComputeMode.ANY, ComputeMode.TRITON)
+        and TritonCast.cast(tensor)
+        or Modes.compute in (ComputeMode.ANY, ComputeMode.TORCH)
+        and TorchCast.cast(tensor)
+    ):
+        if Modes.castmode == CastMode.VIRTUAL:
+            torch_tensor = tensor.tensor.to(out_dtype)
+            del tensor
+            tensor = torch_tensor
+        Modes.restore_modes()
+        return tensor
+    raise NotImplementedError("tcast.cast: datatype conversion not yet implemented in Triton or Torch")
 
 
-def sparse(x: torch.Tensor, stile: int, dense: int, dim: int = -1) -> torch.Tensor:
-    """Virtual cast a tensor to a scaled or unscaled datatype."""
-    return Cast.sparse(x, stile, dense, dim)
+def upcast(
+    tensor: Tensor,
+    torch_dtype: torch.dtype,
+    roundmode: RoundMode | str = None,
+    scalemode: ScaleMode | str = None,
+    computemode: ComputeMode | str = None,
+) -> torch.Tensor | Tensor:
+    """
+    Convert a tcast.Tensor to a new datatype.
 
-
-#####
-##### Predefined datatypes accessible as tcast.float32, tcast.mxfp8e4, etc
-##### NOTE: bias defaults to 2^(ebits-1) - 1 unless overridden in the eXmYbZ descriptor.
-##### Exceptions are external in torch.float8_e5m2fnuz and torch.float8_e4m3fnuz.
-#####
-
-### unscaled
-
-# torch tensor dtypes
-float32 = DataType(torch.float32)
-float16 = DataType(torch.float16)
-bfloat16 = DataType(torch.bfloat16)
-if is_float8_available():
-    float8_e5m2 = DataType(torch.float8_e5m2)
-    float8_e4m3fn = DataType(torch.float8_e4m3fn)
-if is_float8_fnuz_available():
-    float8_e5m2fnuz = DataType(torch.float8_e5m2fnuz)  # bias is 16, nonstandard, matches MI300
-    float8_e4m3fnuz = DataType(torch.float8_e4m3fnuz)  # bias is 8, nonstandard, matches MI300
-
-# 5-bit exponent
-e5m2 = DataType("e5m2")
-e5m2fnuz = DataType("e5m2fnuz")  # bias is 15, DOES NOT MATCH torch.float8_e5m2fnuz
-e5m2b16fnuz = DataType("e5m2b16fnuz")  # bias of 16, DOES MATCH torch.float8_e5m2fnuz and MI300
-binary8p3 = DataType("e5m2b16fnuz")  # IEEE P3109 bias 16 matches torch.float8_e5m2fnuz and MI300
-# 4-bit exponent
-e4m3fnuz = DataType("e4m3fnuz")  # bias is 7, DOES NOT MATCH torch.float8_e5m2fnuz
-e4m3fn = DataType("e4m3fn")
-e4m3b8fnuz = DataType("e4m3b8fnuz")  # bias is 8, DOES MATCH torch.float8_e4m3fnuz and MI300
-binary8p4 = DataType("e4m3b8fnuz")  # IEEE P3109 bias 8 matches torch.float8_e4m3fnuz and MI300
-# 3-bit exponent
-binary8p5 = DataType("e3m4b4fnuz")  # IEEE P3109 bias 4 consistent with other P3109 float8 types
-e3m3fnuz = DataType("e3m3fnuz")  # bias 3
-e3m2fnuz = DataType("e3m2fnuz")  # bias 3
-# 2-bit exponent
-e2m3fnuz = DataType("e2m3fnuz")  # bias 1
-e2m1fnuz = DataType("e2m1fnuz")  # bias 1
-
-### tensor scaled
-
-uint16_ff = DataType("uint16", "float16_float16", "uint16_ff")
-uint16_bb = DataType("uint16", "bfloat16_bfloat16", "uint16_bb")
-int16_f = DataType("int16", "float16", "int16_f")
-int16_b = DataType("int16", "bfloat16", "int16_b")
-int16_e = DataType("int16", "e8m0", "int16_e")
-uint8_ff = DataType("uint16", "float16_float16", "uint16_ff")
-uint8_bb = DataType("uint16", "bfloat16_bfloat16", "uint16_bb")
-uint8_fi = DataType("uint16", "float16_int8", "uint16_fi")
-uint8_bi = DataType("uint16", "bfloat16_int8", "uint16_bi")
-int8_f = DataType("int8", "float16", "int8_f")
-int8_b = DataType("int8", "bfloat16", "int8_b")
-int8_e = DataType("int8", "e8m0", "int8_e")
-e5m2_e = DataType("e5m2", "e8m0", "e5m2_e")
-e5m2z_e = DataType("e5m2fnuz", "e8m0", "e5m2z_e")
-e4m3_e = DataType("e4m3fn", "e8m0", "e4m3_e")
-e4m3z_e = DataType("e4m3fnuz", "e8m0", "e4m3z_e")
-e3m2_e = DataType("e3m2fnuz", "e8m0", "e3m2_e")
-e2m3_e = DataType("e2m3fnuz", "e8m0", "e2m3_e")
-
-# MX, tile size 32, exponent scale (BFP tile size 8)
-
-mxfp8e5 = DataType("e5m2", "e8m0_t32", "mxfp8e5")
-mxfp8e4 = DataType("e4m3fn", "e8m0_t32", "mxfp8e4")
-mxfp6e3 = DataType("e3m2fnuz", "e8m0_t32", "mxfp6e3")
-mxfp6e2 = DataType("e2m3fnuz", "e8m0_t32", "mxfp6e2")
-mxfp4e2 = DataType("e2m1fnuz", "e8m0_t32", "mxfp4e2")
-mxint8 = DataType("int8", "e8m0_t32", "mxint8")
-mxint4 = DataType("int4", "e8m0_t32", "mxint4")
-bfp16 = DataType("int8", "e8m0_t8", "bfp16")
-
-# Float-scaled integer, tile size 32
-
-uint4_ff32 = DataType("uint4", "float16_float16_t32", "uint4_ff32")
-uint4_bb32 = DataType("uint4", "bfloat16_bfloat16_t32", "uint4_bb32")
-uint4_fi32 = DataType("uint4", "float16_int8_t32", "uint4_fi32")
-uint4_bi32 = DataType("uint4", "bfloat16_int8_t32", "uint4_bi32")
-int4_f32 = DataType("int4", "float16_t32", "int4_f32")
-int4_b32 = DataType("int4", "bfloat16_t32", "int4_b32")
-# 1-bit exponent (integer)
-e1m6b1fnuz = DataType("e1m6b1fnuz", "e8m0_t8", "e1m6_e32")  # bias overriden to 1, equivalent to int8
-e1m2b1fnuz = DataType("e1m2b1fnuz", "e8m0_t8", "e1m2_e32")  # bias overriden to 1, equivalent to int4
+    Typically used for an upcast, the scale data in the tcast.Tensor is used.
+    """
+    Modes.set_modes(roundmode, scalemode, computemode, "virtual")
+    if not isinstance(tensor, Tensor) or not isinstance(torch_dtype, torch.dtype):
+        raise ValueError("tcast.upcast: tensor and torch_dtype must be tcast.Tensor and torch.dtype")
+    if (
+        Modes.compute in (ComputeMode.ANY, ComputeMode.TRITON)
+        and TritonCast.upcast(tensor, torch_dtype)
+        or Modes.compute in (ComputeMode.ANY, ComputeMode.TORCH)
+        and TorchCast.cast(tensor, torch_dtype)
+    ):
+        torch_tensor = tensor.tensor
+        assert torch_tensor.dtype == torch_dtype
+        del tensor
+        Modes.restore_modes()
+        return torch_tensor
+    raise NotImplementedError("tcast.cast: datatype conversion not yet implemented in Triton or Torch")

@@ -2,7 +2,7 @@
 
 # TensorCast (tcast)
 
-> THIS IS THE V3 BRANCH OF TENSORCAST which is just now starting to be populated (3/3/25).
+> THIS IS THE "triton" BRANCH OF TENSORCAST which is just now starting to be populated (3/3/25).s
 
 TensorCast is an open source PyTorch casting/quantization library in early development.
 It is based on PyTorch 2.4+.
