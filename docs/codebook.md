@@ -66,9 +66,12 @@ returns either a `NumberSpec` or a `Codebook` (which is a subclass of `NumberSpe
 if the input is a string beginning with "cb" (case insensitive).
 
 ```python
-    codebook = tcast.number("cb44_e4m3fn_mycodebook")   # generic codebook, 16x16 fp8
-    codebook.add_mappings(maplists)                     # populate with codebook matrix
-    implicit_codebook = tcast.number("cb41fi_e2m3fnuz") # implicit codebook
+    # generic codebook, 16x16 fp8
+    codebook = tcast.number("cb44_e4m3fn_mycodebook")
+    # populate with codebook matrix
+    codebook.add_mappings(maplists)
+    # implicit codebook                
+    implicit_codebook = tcast.number("cb41fi_e2m3fnuz")
 ```
 
 Codebooks can also be created via constructor:

@@ -41,9 +41,6 @@ class ComputeMode(Enum):
 
     TORCH = 0  # torch operations
     TRITON = 1  # triton operations
-    GPU = 2  # cuda/hip extension
-    CPU = 3  # cpp host extension
-    ANY = 4  # best available extension
 
 
 class CastMode(Enum):
@@ -143,11 +140,11 @@ class Modes:
 
     round: ClassVar[RoundMode] = RoundMode.EVEN
     scale: ClassVar[ScaleMode] = ScaleMode.FLOOR
-    compute: ClassVar[ComputeMode] = ComputeMode.ANY
+    compute: ClassVar[ComputeMode] = ComputeMode.TORCH
     cast: ClassVar[CastMode] = CastMode.ACTUAL
     saved_round: ClassVar[RoundMode] = RoundMode.EVEN
     saved_scale: ClassVar[ScaleMode] = ScaleMode.FLOOR
-    saved_compute: ClassVar[ComputeMode] = ComputeMode.ANY
+    saved_compute: ClassVar[ComputeMode] = ComputeMode.TORCH
     saved_cast: ClassVar[CastMode] = CastMode.ACTUAL
     warn_cpu: ClassVar[bool] = True
     warn_gpu: ClassVar[bool] = True
@@ -177,15 +174,7 @@ class Modes:
         if castmode is not None:
             cls.cast = castmode
         if computemode is not None:
-            if computemode == ComputeMode.GPU and cls.warn_gpu:
-                logger.warning(f"Extension {computemode} not implemented, using torch")
-                cls.warn_gpu = False
-                cls.compute = ComputeMode.TORCH
-            elif computemode == ComputeMode.CPU and cls.warn_cpu:
-                logger.warning(f"Extension {computemode} not implemented, using torch")
-                cls.warn_cpu = False
-                cls.compute = ComputeMode.TORCH
-            elif computemode == ComputeMode.TRITON and cls.warn_triton and not is_triton_available():
+            if computemode == ComputeMode.TRITON and cls.warn_triton and not is_triton_available():
                 logger.warning("triton not installed, using torch")
                 cls.warn_triton = False
                 cls.compute = ComputeMode.TORCH

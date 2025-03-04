@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # tcast/utils.py: utility functions for tensorcast package
 # SPDX-License-Identifier: MIT
-# ruff: noqa: D103
 
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
 
@@ -69,16 +68,47 @@ def printoptions(precision: int = 8):
     """Set PyTorch printoptions to something useful."""
     torch.set_printoptions(precision=precision, sci_mode=False)
 
+logger = None
 
-def hadamard_transform(x):
-    """Apply the Hadamard transform to a tensor."""
-    n = x.shape[-1]
-    sqrt2 = torch.sqrt(torch.tensor(2.0, dtype=x.dtype, device=x.device))
-    h_2x2 = torch.tensor([[1, 1], [1, -1]], dtype=x.dtype, device=x.device)
-    had = h_2x2 / sqrt2
-    while had.shape[0] < n:
-        had = torch.kron(had, h_2x2) / sqrt2
-    return torch.matmul(x, had)
+
+def get_logger(name: str = "tcast") -> logging.Logger:
+    """Set up logging."""
+    global logger
+    if logger is not None:
+        return logger
+    logger = logging.getLogger(name)
+    formatter = logging.Formatter("%(asctime)s %(message)s", datefmt="%m/%d/%Y %I:%M:%S %p")
+    ch = logging.StreamHandler()
+    ch.setFormatter(formatter)
+    ch.setLevel(logging.INFO)
+    logger.addHandler(ch)
+    fh = logging.FileHandler((name + ".log").replace(".log.log", ".log"), mode="w")
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    logger.propagate = False
+
+
+def randomize_imatrix(imatrix: torch.Tensor) -> torch.Tensor:
+    """Randomize a Walsh-Hadamard matrix while preserving orthogonality."""
+    diag = torch.diag(torch.randint(0, 2, (imatrix.shape[0],), dtype=imatrix.dtype, device=imatrix.device) * 2 - 1)
+    return diag @ imatrix
+
+
+def get_imatrix(size: int, dtype: torch.dtype = torch.float32, walsh: bool = True, randomize: bool = True) -> torch.Tensor:
+    def sign_changes(matrix):
+        return [sum(int(matrix[j,i] != matrix[j, i+1]) for i in range(size-1)) for j in range(size)]
+    imatrix = torch.tensor([[1, 1], [1, -1]], dtype=dtype).cuda()
+    while imatrix.size(0) < size:
+        imatrix = torch.kron(imatrix, torch.tensor([[1, 1], [1, -1]], dtype=dtype, device=imatrix.device))
+    imatrix /= torch.tensor(size, dtype=dtype, device=imatrix.device).sqrt()
+    if walsh:
+        changes = sign_changes(imatrix)
+        order = torch.tensor(changes, dtype=imatrix.dtype, device=imatrix.device).argsort()
+        imatrix = imatrix[order, :]
+    if randomize:
+        imatrix = randomize_imatrix(imatrix)
+    return imatrix
 
 
 def kurtosis(x):
@@ -115,7 +145,7 @@ def make_outliers(
 ) -> torch.Tensor:
     """Applies outliers to the given tensor to better test efficacy of incoherence processing."""
     if scale is not None:
-        x *= torch.rand(x.size(), device=x.device) * scale
+        x *= torch.rand(x.size(-1), device=x.device) * scale
     if prob > 0.0:
         mask = torch.nn.functional.dropout(x, p=1.0 - prob) != 0.0
         oscale = torch.randint_like(x, 1, range + 1).float().exp2()
@@ -133,3 +163,8 @@ class Singleton(type):
             instance = super().__call__(*args, **kwargs)
             cls._instances[cls] = instance
         return cls._instances[cls]
+
+
+if __name__ == "__main__":
+    imatrix = get_imatrix(8, randomize=True)
+    pass

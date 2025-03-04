@@ -8,7 +8,7 @@ import torch
 
 from .common import CastMode, ComputeMode, Modes, RoundMode, ScaleMode, get_enum
 from .datatype import DataType
-from .injector import TorchInjector, MixedPrecisionInjector
+from .injector import mixed_precision_injector, torch_injector
 from .number import Codebook, NumberLine, NumberSpec
 from .scale import ScaleSpec
 from .tensor import Tensor
@@ -16,12 +16,16 @@ from .torchcast import TorchCast
 from .tritoncast import TritonCast
 from .utils import (
     cdiv,
-    hadamard_transform,
+    get_imatrix,
+    get_logger,
     is_float8_available,
     is_float8_fnuz_available,
     is_triton_available,
+    kurtosis,
+    make_outliers,
     next_power_of_2,
     printoptions,
+    randomize_imatrix,
 )
 
 __version__ = "0.3.0"
@@ -44,12 +48,12 @@ def initialize(
 
 # torch tensor dtypes
 float32 = DataType(name="float32")
-float16 = DataType(tname="float16")
+float16 = DataType(name="float16")
 bfloat16 = DataType(name="bfloat16")
-float8_e5m2 = DataType(name="float8_e5m2")
-float8_e4m3fn = DataType(name="float8_e4m3fn")
-float8_e5m2fnuz = DataType(name="float8_e5m2fnuz")
-float8_e4m3fnuz = DataType(name="float8_e4m3fnuz")
+float8_e5m2 = DataType("float8_e5m2")
+float8_e4m3fn = DataType("float8_e4m3fn")
+float8_e5m2fnuz = DataType("float8_e5m2fnuz")
+float8_e4m3fnuz = DataType("float8_e4m3fnuz")
 
 # OCP 8-bit unscaled datatypes
 bf8 = e5m2 = float8_e5m2
@@ -144,7 +148,6 @@ mxint4t16 = DataType("int4", "e8m0_t16", "mxint4t16")
 
 nvf4 = DataType("e2m1fnuz", "e4m3_t16", "nvf4")
 
-
 # MSFP (old school Microsoft), tile size 16, exponent scale, subtile size 2, implemented as codebooks
 # BFP16 is essentially OCP MXINT8, but with a tile size of 8
 
@@ -214,45 +217,16 @@ def cast(
         raise ValueError("tcast.cast: tensor and dtype must be torch.Tensor and DataType or torch.dtype")
     tensor = Tensor(tensor, DataType(str(dtype)) if isinstance(dtype, torch.dtype) else dtype, transpose_scale=transpose_scale)
     out_dtype = dtype if isinstance(dtype, torch.dtype) else tensor.original_dtype
-    if (
-        Modes.compute in (ComputeMode.ANY, ComputeMode.TRITON)
-        and TritonCast.cast(tensor)
-        or Modes.compute in (ComputeMode.ANY, ComputeMode.TORCH)
-        and TorchCast.cast(tensor)
-    ):
-        if Modes.castmode == CastMode.VIRTUAL:
-            torch_tensor = tensor.tensor.to(out_dtype)
-            del tensor
-            tensor = torch_tensor
-        Modes.restore_modes()
-        return tensor
-    raise NotImplementedError("tcast.cast: datatype conversion not yet implemented in Triton or Torch")
-
-
-def upcast(
-    tensor: Tensor,
-    torch_dtype: torch.dtype,
-    roundmode: RoundMode | str = None,
-    scalemode: ScaleMode | str = None,
-    computemode: ComputeMode | str = None,
-) -> torch.Tensor | Tensor:
-    """
-    Convert a tcast.Tensor to a new datatype.
-
-    Typically used for an upcast, the scale data in the tcast.Tensor is used.
-    """
-    Modes.set_modes(roundmode, scalemode, computemode, "virtual")
-    if not isinstance(tensor, Tensor) or not isinstance(torch_dtype, torch.dtype):
-        raise ValueError("tcast.upcast: tensor and torch_dtype must be tcast.Tensor and torch.dtype")
-    if (
-        Modes.compute in (ComputeMode.ANY, ComputeMode.TRITON)
-        and TritonCast.upcast(tensor, torch_dtype)
-        or Modes.compute in (ComputeMode.ANY, ComputeMode.TORCH)
-        and TorchCast.cast(tensor, torch_dtype)
-    ):
-        torch_tensor = tensor.tensor
-        assert torch_tensor.dtype == torch_dtype
+    if Modes.compute == ComputeMode.TRITON and TritonCast.supports(tensor):
+        tensor = TritonCast.cast(tensor.precast())
+    elif TorchCast.supports(tensor):
+        tensor = TorchCast.cast(tensor.precast())
+    else:
+        raise NotImplementedError("tcast.cast: datatype conversion not yet implemented in Triton or Torch")
+    tensor.postcast()
+    if Modes.castmode == CastMode.VIRTUAL:
+        torch_tensor = tensor.tensor.to(out_dtype)
         del tensor
-        Modes.restore_modes()
-        return torch_tensor
-    raise NotImplementedError("tcast.cast: datatype conversion not yet implemented in Triton or Torch")
+        tensor = torch_tensor
+    Modes.restore_modes()
+    return tensor

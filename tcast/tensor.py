@@ -4,17 +4,16 @@
 
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
 
-import logging
 from typing import NamedTuple
 
 from einops import rearrange
 import torch
 
-from .common import CastMode, Modes, ScaleData
+from .common import CastMode, ComputeMode, Modes, ScaleData
 from .datatype import DataType
-from .utils import cdiv
+from .utils import cdiv, get_logger
 
-logger = logging.getLogger(f"tcast.{__name__}")
+logger = get_logger()
 
 
 class ShapeInfo(NamedTuple):
@@ -118,10 +117,12 @@ class Tensor:
             self.shape_info[name] = ShapeInfo(oshape, odtype, ashape, adtype, cshape, cdtype, pratio, sratio)
         return self.shape_info[name]
 
-    def precast(self, torchcast: bool):
+    def precast(self):
         """Prior to cast, set up tensors."""
         if self.dtype.is_unscaled:
-            return
+            return self
+        if self.original.ndim > 4:
+            raise NotImplementedError("More than 4D shapes are not supported.")
         if self.dtype.is_tensor and Modes.cast != CastMode.COMPRESS:
             # no need for reshape, just create the tensors
             self.output = torch.zeros_like(self.input, dtype=self.get_shapeinfo("output").get_info(Modes.cast)[1])
@@ -131,84 +132,81 @@ class Tensor:
                 if self.dtype.nspec.is_uint:
                     _, dtype = self.get_shapeinfo("zero").get_info(Modes.cast)
                     self.zero = torch.zeros(torch.Size((1,)), dtype=dtype, device=self.original_device)
-            return
+        else:
+            # reshape the input tensor to 2D if it is not already
+            if self.input.ndim == 1:
+                self.input = rearrange(self.input, "n -> 1 n")
+                self.shape_transforms.append(("output", "rearrange", "1 n -> n", {}))
+            elif self.input.ndim == 3:
+                self.input = rearrange(self.input, "b s h -> (b s) h")
+                self.shape_transforms.append(("output", "rearrange", "(b s) n -> b s n", {"b": self.original_shape[0]}))
+            elif self.input.ndim == 4:
+                if self.transpose_scale:
+                    self.input = rearrange(self.input, "b c h w -> b (c h w)", {})
+                    self.shape_transforms.append(
+                        (
+                            "output",
+                            "rearrange",
+                            "b (c h w) -> b c h w",
+                            {"c": self.original_shape[1], "h": self.original_shape[2], "w": self.original_shape[3]},
+                        )
+                    )
+                else:
+                    self.input = rearrange(self.input, "b c h w -> (b h w) c")
+                    self.shape_transforms.append(
+                        (
+                            "output",
+                            "rearrange",
+                            "(b h w) c -> b c h w",
+                            {"b": self.original_shape[0], "h": self.original_shape[2], "w": self.original_shape[3]},
+                        )
+                    )
 
-        if self.original.ndim > 4:
-            raise NotImplementedError("More than 4D shapes are not supported.")
+            sspec = self.dtype.sspec
+            size0, size1, tile0, tile1, subtile0, subtile1, _, _ = sspec.get_tile_info(*self.input.size(), self.transpose_scale)
 
-        # reshape the input tensor to 2D if it is not already
-        if self.input.ndim == 1:
-            self.input = rearrange(self.input, "n -> 1 n")
-            self.shape_transforms.append(("output", "rearrange", "1 n -> n", {}))
-        elif self.input.ndim == 3:
-            self.input = rearrange(self.input, "b s h -> (b s) h")
-            self.shape_transforms.append(("output", "rearrange", "(b s) n -> b s n", {"b": self.original_shape[0]}))
-        elif self.input.ndim == 4:
             if self.transpose_scale:
-                self.input = rearrange(self.input, "b c h w -> b (c h w)", {})
-                self.shape_transforms.append(
-                    (
-                        "output",
-                        "rearrange",
-                        "b (c h w) -> b c h w",
-                        {"c": self.original_shape[1], "h": self.original_shape[2], "w": self.original_shape[3]},
-                    )
-                )
-            else:
-                self.input = rearrange(self.input, "b c h w -> (b h w) c")
-                self.shape_transforms.append(
-                    (
-                        "output",
-                        "rearrange",
-                        "(b h w) c -> b c h w",
-                        {"b": self.original_shape[0], "h": self.original_shape[2], "w": self.original_shape[3]},
-                    )
-                )
+                self.input = rearrange(self.input, "n c -> c n")
 
-        sspec = self.dtype.sspec
-        size0, size1, tile0, tile1, subtile0, subtile1, _, _ = sspec.get_tile_info(*self.input.size(), self.transpose_scale)
+            if Modes.compute == ComputeMode.TORCH:
+                if size0 % tile0 != 0 or size1 % tile1 != 0:
+                    # need to pad
+                    pad = (tile0 - size0 % tile0, tile1 - size1 % tile1)
+                    self.input = torch.nn.functional.pad(self.input, (0, pad[1], 0, pad[0]), mode="constant", value=0)
+                if sspec.is_2d:
+                    self.input = rearrange(self.input, "(n nt) (c ct) -> (n c) (nt ct)", nt=tile0, ct=tile1)
+                else:
+                    self.input = rearrange(self.input, "n (c ct) -> (n c) ct", ct=tile1)
 
-        if self.transpose_scale:
-            self.input = rearrange(self.input, "n c -> c n")
+            # get the shape information for the tensor, scale, zero, meta, and mask, and create them
+            shape, dtype = self.get_shapeinfo("output", tile0, tile1, subtile0, subtile1).get_info(Modes.cast)
+            self.output = torch.zeros(shape, dtype=dtype, device=self.original_device)
+            if Modes.cast != CastMode.VIRTUAL:
+                shape, dtype = self.get_shapeinfo("scale", tile0, tile1, subtile0, subtile1).get_info(Modes.cast)
+                self.scale = torch.empty(shape, dtype=dtype, device=self.original_device)
+                if self.dtype.nspec.is_uint:
+                    shape, dtype = self.get_shapeinfo("zero", tile0, tile1, subtile0, subtile1).get_info(Modes.cast)
+                    self.zero = torch.empty(shape, dtype=dtype, device=self.original_device)
+                if self.dtype.is_sparse:
+                    shape, dtype = self.get_shapeinfo("mask", tile0, tile1, subtile0, subtile1).get_info(Modes.cast)
+                    self.mask = torch.zeros(shape, dtype=dtype, device=self.original_device)
+                if self.dtype.is_codebook:
+                    shape, dtype = self.get_shapeinfo("meta", tile0, tile1, subtile0, subtile1).get_info(Modes.cast)
+                    self.meta = torch.zeros(shape, dtype=dtype, device=self.original_device)
+        return self
 
-        if torchcast:
-            if size0 % tile0 != 0 or size1 % tile1 != 0:
-                # need to pad
-                pad = (tile0 - size0 % tile0, tile1 - size1 % tile1)
-                self.input = torch.nn.functional.pad(self.input, (0, pad[1], 0, pad[0]), mode="constant", value=0)
-            if sspec.is_2d:
-                self.input = rearrange(self.input, "(n nt) (c ct) -> (n c) (nt ct)", nt=tile0, ct=tile1)
-            else:
-                self.input = rearrange(self.input, "n (c ct) -> (n c) ct", ct=tile1)
-
-        # get the shape information for the tensor, scale, zero, meta, and mask, and create them
-        shape, dtype = self.get_shapeinfo("output", tile0, tile1, subtile0, subtile1).get_info(Modes.cast)
-        self.output = torch.zeros(shape, dtype=dtype, device=self.original_device)
-        if Modes.cast != CastMode.VIRTUAL:
-            shape, dtype = self.get_shapeinfo("scale", tile0, tile1, subtile0, subtile1).get_info(Modes.cast)
-            self.scale = torch.empty(shape, dtype=dtype, device=self.original_device)
-            if self.dtype.nspec.is_uint:
-                shape, dtype = self.get_shapeinfo("zero", tile0, tile1, subtile0, subtile1).get_info(Modes.cast)
-                self.zero = torch.empty(shape, dtype=dtype, device=self.original_device)
-            if self.dtype.is_sparse:
-                shape, dtype = self.get_shapeinfo("mask", tile0, tile1, subtile0, subtile1).get_info(Modes.cast)
-                self.mask = torch.zeros(shape, dtype=dtype, device=self.original_device)
-            if self.dtype.is_codebook:
-                shape, dtype = self.get_shapeinfo("meta", tile0, tile1, subtile0, subtile1).get_info(Modes.cast)
-                self.meta = torch.zeros(shape, dtype=dtype, device=self.original_device)
-
-    def postcast(self, transpose_scale: bool):
+    def postcast(self):
         """Reshape the tensors to match the original shape."""
         if Modes.cast == CastMode.VIRTUAL:
-            if transpose_scale:
+            if self.transpose_scale:
                 self.output = self.output.transpose(0, 1)
-            if len(self.original_shape) == 4 and not transpose_scale:
+            if len(self.original_shape) == 4 and not self.transpose_scale:
                 # input channels are in the last dimension, so we need to transpose back
                 shape = [self.original_shape[0], self.original_shape[3], self.original_shape[2], self.original_shape[1]]
                 self.output = self.output.reshape(shape).transpose(1, -1).contiguous()
             else:
                 self.output = self.output.reshape(self.original_shape)
-        elif transpose_scale:
+        elif self.transpose_scale:
             self.output = self.output.transpose(0, 1)
             if self.scale is not None:
                 self.scale = self.scale.transpose(0, 1)

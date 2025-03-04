@@ -2,10 +2,13 @@
 
 # Scaling
 
+> TODO: this doc is out of date (but consistent with the v2 branch).
+
 Scaling is specified by a [ScaleSpec](../tcast/scale.py).
+
 Scaling specifications differentiate between tensor scales, channel scales, tile scales, and individual scales
-(i.e. value exponents).  A *tile* in TensorCast is also known as a "block" or "group", but here the term "tile" is used,
-matching the Microxcaling ([paper](https://arxiv.org/pdf/2310.10537.pdf),
+(i.e. value exponents).  A *tile* in TensorCast is also known as a "block" or "group", but here the term "tile"
+is used, matching the Microxcaling ([paper](https://arxiv.org/pdf/2310.10537.pdf),
 [github](https://github.com/microsoft/microxcaling.git)) terminology from Microsoft, who co-developed the
 [OCP MX formats](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf),
 and published earlier work with
@@ -17,7 +20,7 @@ Microsoft also introduced *subtile* in
 where the initial version of MX (without individual exponents) shared one or more scale offset bits to preserve
 precision.  These datatypes include MX9, MX6, and MX4 (also known as BFP Prime).  This scaling is supported
 in TensorCast in the form of [implicit codebooks](./codebook.md), but only as a storage datatype that is upcast
-to MXFP compute datatypes.  The subtile in the scale is specific to the codebook
+to MXFP compute datatypes.  The subtile in the scale is specific to the codebook.
 
 In TensorCast, tensor, channel, tile, and individual scales are supported, but tensor, channel, and tile scales cannot
 currently be mixed.
@@ -44,25 +47,30 @@ can be float or exponent, just as with integer data.
 Unscaled data, such as bfloat16, does not have a scale spec in the [datatype](./datatype.md), so the scale spec
 is either a tensor, channel, or tile scale.  A tensor scale is simply a scalar (or two scalars for unsigned data),
 and is specified by defining the number spec(s) for the scale with no tile specification.  A channel scale is a tile
-scale, in which tile is the size of the tensor in the dimension of the scale, and is specified with a tile size of zero.
-A tile scale has a tile size and the dimension of the tile.  The dimension defaults to -1 (the last dimension of the tensor).
+scale, in which tile is the size of the tensor in the dimension of the scale, and is specified with a tile size of
+zero.
+A tile scale has a tile size and the dimension of the tile.  The dimension defaults to -1 (the last dimension of
+the tensor).
 
-A limitation in V1 as of now is that padding of tensors is not implemented, so the tensor size in the specified dimension must be a
+A limitation in V1 as of now is that padding of tensors is not implemented, so the tensor size in the specified
+dimension must be a
 multiple of the tile size.
 
 ### Scale Specification String Encoding
 
-The components of a scale being scale number spec, optional zero point number spec, and optional tile spec, the string encoding
+The components of a scale being scale number spec, optional zero point number spec, and optional tile spec,
+the string encoding
 of a scale specification is the concatenation of the string encodings of the constituents, joined by underscores.
 
-The number specs are defined above.  The tile scale is of the form "tXdY", where X is the size of the tile, a power of two between 2
-and 1024 (or 0 for channel scaling) and Y is the dimension of the tile. If the dimension is -1, "dY" is omitted.  However, for channel
-scaling the tile spec must be included, even if it is only "t0".
+The number specs are defined above.  The tile scale is of the form "tXdY", where X is the size of the tile,
+a power of two between 2
+and 1024 (or 0 for channel scaling) and Y is the dimension of the tile. If the dimension is -1, "dY" is omitted.
+However, for channel scaling the tile spec must be included, even if it is only "t0".
 
 ### ScaleSpec Implementation Notes
 
-Until 2D tiles, subtiles, hierarchical scaling, and compression are implemented in V2, ScaleSpec is pretty simple.  There are methods
-for reshaping the tensor to make PyTorch-based scale discovery a bit more straightforward.
+Until 2D tiles, subtiles, hierarchical scaling, and compression are implemented in V2, ScaleSpec is pretty simple.
+There are methods for reshaping the tensor to make PyTorch-based scale discovery a bit more straightforward.
 
 ---
 

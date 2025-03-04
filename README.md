@@ -2,14 +2,16 @@
 
 # TensorCast (tcast)
 
-> THIS IS THE "triton" BRANCH OF TENSORCAST which is just now starting to be populated (3/3/25).s
+> This is the *triton* branch of TensorCast which is just now starting to be populated (3/3/25).
+> For working code, use the v2 branch for now.  This branch will begin to be functional beginning
+> 3/21/25.
 
-TensorCast is an open source PyTorch casting/quantization library in early development.
-It is based on PyTorch 2.4+.
+TensorCast is an open source PyTorch casting/quantization library. It is based on PyTorch 2.4+.
 
-Why do we need yet another quantization library?  Most people will not.  TensorCast exists for
-the purpose of exploring alternative scaling strategies and adaptive datatypes, to enable
-researchers to provide evidence-based proposals for enhancing GEMM accelerator hardware.
+TensorCast exists for the purpose of exploring alternative scaling strategies and adaptive datatypes,
+to enable researchers to provide evidence-based proposals for enhancing GEMM accelerator hardware.
+With this new branch, development of performant Triton quantization methods and some additional
+scaling methods is underway.
 
 The scope of TensorCast is defining datatypes and converting tensors from one datatype to another.
 While unscaled, tensor-scaled, and channel-scaled datatypes are supported, the emphasis is on

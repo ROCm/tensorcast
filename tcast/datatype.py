@@ -1,5 +1,8 @@
-"""TensorCast: Conversion and compression of arbitrary datatypes."""
+#!/usr/bin/env python
 # tcast/datatype.py: combines number spec and scale spec to define a datatype
+# SPDX-License-Identifier: MIT
+
+"""TensorCast: Specification, conversion and compression of arbitrary datatypes."""
 
 import torch
 

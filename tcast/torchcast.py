@@ -47,13 +47,12 @@ class TorchCast:
         tensor.update(tensor=x)
 
     @staticmethod
-    def select_codebook_meta(tensor: Tensor, better: Callable | None = None) -> None:
+    def select_codebook_meta(tensor: Tensor) -> None:
         """Cast a tensor to multiple datatypes based on tile/subtile content."""
 
         def _better(q1: torch.Tensor, q2: torch.Tensor, f: torch.Tensor):
             return torch.linalg.vector_norm(q1 - f, dim=-1) < torch.linalg.vector_norm(q2 - f, dim=-1)
 
-        better = better if better else _better
         # start with everything being mapping zero
         master_meta = torch.zeros_like(tensor.meta)
         for i in range(tensor.dtype.nspec.num_mappings):
@@ -62,19 +61,19 @@ class TorchCast:
             if i == 0:
                 output = tmp_tensor.tensor.clone()
             else:
-                choice = better(tmp_tensor.tensor, output, tensor.tensor)
+                choice = _better(tmp_tensor.tensor, output, tensor.tensor)
                 master_meta[choice] = i
                 output[choice] = tmp_tensor.tensor[choice]
             del tmp_tensor
         tensor.update(meta=master_meta)
 
     @staticmethod
-    def apply_codebook(tensor: Tensor, better: Callable = None) -> None:
+    def apply_codebook(tensor: Tensor, premeta: bool = False, better: Callable = None) -> None:
         """Cast to codebooks in tensor.meta.  Create meta if not already selected."""
         assert tensor.dtype.is_codebook
         nspec, sspec = tensor.dtype.nspec, tensor.dtype.sspec
         x = tensor.reshape(subtile=sspec.subtile)
-        if not tensor.has_meta:
+        if not tensor.premeta:
             TorchCast.select_codebook_meta(tensor, better)
         scale = (tensor.scale - sspec.scale.bias).exp2()
         tmap, tmid = nspec.get_codebook(torch_dtype=x.dtype, device=x.device)
@@ -187,24 +186,23 @@ class TorchCast:
         tensor.reshape()
 
     @staticmethod
-    def supports(tensor: Tensor, prescaled: bool, premapped: bool, magnitude: bool) -> bool:
-        """Check if the cast operation is supported by in the triton code."""
-        return Modes.cast != CastMode.COMPRESS and not magnitude
+    def supports(tensor: Tensor,) -> bool:
+        """Check if the cast operation is supported by in the torch code."""
+        return Modes.cast != CastMode.COMPRESS
 
     @staticmethod
-    def cast(
-        tensor: Tensor, prescaled: bool = False, premapped: bool = False, magnitude: bool = False, better: Callable = None
-    ) -> bool:
+    def cast(tensor: Tensor) -> bool:
         """Cast interface using PyTorch ops."""
+        if not TorchCast.supports(tensor):
+            return False
         if tensor.dtype.is_unscaled:
             TorchCast.cast_unscaled(tensor)
         else:
-            if not prescaled:
-                TorchCast.select_scales(tensor)
+            TorchCast.select_scales(tensor)
             if tensor.dtype.is_sparse:
                 TorchCast.apply_sparsity_mask(tensor)
             if tensor.dtype.is_codebook:
-                TorchCast.apply_codebook(tensor, better)
+                TorchCast.apply_codebook(tensor)
             else:
                 TorchCast.apply_scales(tensor)
         return tensor

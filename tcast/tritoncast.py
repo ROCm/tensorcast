@@ -648,7 +648,7 @@ class TritonCast:
         if not TritonCast.supports(tensor):
             return False
 
-        tensor.precast(transpose_scale)
+        tensor.precast()
         nspec, sspec = tensor.dtype.nspec, tensor.dtype.sspec
         t = tensor.original
         input_info = (t, t.size(0), t.size(1), t.stride(0), t.stride(1))

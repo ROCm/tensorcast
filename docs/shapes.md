@@ -1,5 +1,7 @@
 <!-- markdownlint-disable MD033 MD041 -->
 
+> TODO
+
 # Tensor Shapes
 
 Tensor shapes, and their accompanying scale, metadata, and sparsity mask shapes, are somewhat complicated.

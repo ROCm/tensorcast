@@ -1,20 +1,18 @@
+#!/usr/bin/env python
+# tcast/modules.py: quant versions of modules
+# SPDX-License-Identifier: MIT
+
+"""TensorCast: Specification, conversion and compression of arbitrary datatypes."""
+
 import torch
+
 import tcast
 
+
 class Linear(torch.nn.Linear):
-    def __init__(
-        self,
-        in_features,
-        out_features,
-        bias=True,
-        tcast_specs=None,
-        pre_weights=None,
-        pre_bias=None,
-    ):
-        super().__init__(
-            in_features,
-            out_features,
-            bias=bias)
+    """Linear subclass that supports custom accumulation and datatype conversion."""
+    def __init__(self, in_features, out_features, bias=True, tcast_specs=None, pre_weights=None, pre_bias=None):
+        super().__init__(in_features, out_features, bias=bias)
 
         self.specs = tcast_specs
 
@@ -25,35 +23,32 @@ class Linear(torch.nn.Linear):
             with torch.no_grad():
                 self.bias = pre_bias
 
-        if 'weight_dtype' in self.specs:
+        if "weight_dtype" in self.specs:
             with torch.no_grad():
-                self.weight = torch.nn.parameter.Parameter(tcast.cast(self.weight, dtype=self.specs['weight_dtype']))
+                self.weight = torch.nn.parameter.Parameter(tcast.cast(self.weight, dtype=self.specs["weight_dtype"]))
 
-        if 'bias_dtype' in self.specs:
+        if "bias_dtype" in self.specs:
             with torch.no_grad():
-                self.bias = torch.nn.parameter.Parameter(tcast.cast(self.bias, dtype=self.specs['bias_dtype']))
+                self.bias = torch.nn.parameter.Parameter(tcast.cast(self.bias, dtype=self.specs["bias_dtype"]))
 
     def forward(self, inputs):
-        if 'input_dtype' in self.specs:
-            inputs = tcast.cast(inputs, dtype=self.specs['input_dtype'])
+        if "input_dtype" in self.specs:
+            inputs = tcast.cast(inputs, dtype=self.specs["input_dtype"])
 
-        if 'custom_accumulation' in self.specs:
+        if "custom_accumulation" in self.specs:
             # the following could be modified by a method.
-            outputs = torch.nn.functional.linear(
-                inputs,
-                self.weight,
-                bias=self.bias,
-            )
+            outputs = torch.nn.functional.linear(inputs, self.weight, bias=self.bias)
         else:
             outputs = super().forward(inputs)
 
-        if 'output_dtype' in self.specs:
-            outputs = tcast.cast(outputs, dtype=self.specs['output_dtype'])
+        if "output_dtype" in self.specs:
+            outputs = tcast.cast(outputs, dtype=self.specs["output_dtype"])
 
         return outputs
 
 
 class Conv2d(torch.nn.Conv2d):
+    """Conv2d subclass that supports custom accumulation and datatype conversion."""
     def __init__(
         self,
         in_channels,
@@ -64,13 +59,12 @@ class Conv2d(torch.nn.Conv2d):
         dilation=1,
         groups=1,
         bias=True,
-        padding_mode='zeros',
+        padding_mode="zeros",
         tcast_specs=None,
         pre_weights=None,
         pre_bias=None,
     ):
-
-        super(Conv2d, self).__init__(
+        super().__init__(
             in_channels,
             out_channels,
             kernel_size,
@@ -79,7 +73,7 @@ class Conv2d(torch.nn.Conv2d):
             dilation=dilation,
             groups=groups,
             bias=bias,
-            padding_mode=padding_mode
+            padding_mode=padding_mode,
         )
 
         self.specs = tcast_specs
@@ -91,22 +85,21 @@ class Conv2d(torch.nn.Conv2d):
             with torch.no_grad():
                 self.bias = pre_bias
 
-        if 'weight_dtype' in self.specs:
+        if "weight_dtype" in self.specs:
             with torch.no_grad():
-                self.weight = torch.nn.parameter.Parameter(tcast.cast(self.weight, dtype=self.specs['weight_dtype']))
+                self.weight = torch.nn.parameter.Parameter(tcast.cast(self.weight, dtype=self.specs["weight_dtype"]))
 
-        if 'bias_dtype' in self.specs:
+        if "bias_dtype" in self.specs:
             with torch.no_grad():
-                self.bias = torch.nn.parameter.Parameter(tcast.cast(self.bias, dtype=self.specs['bias_dtype']))
+                self.bias = torch.nn.parameter.Parameter(tcast.cast(self.bias, dtype=self.specs["bias_dtype"]))
 
     def forward(self, inputs):
+        if "input_dtype" in self.specs:
+            inputs = tcast.cast(inputs, dtype=self.specs["input_dtype"])
 
-        if 'input_dtype' in self.specs:
-            inputs = tcast.cast(inputs, dtype=self.specs['input_dtype'])
-
-        if 'custom_accumulation' in self.specs:
+        if "custom_accumulation" in self.specs:
             # the following could be modified by a method.
-            #return super()._conv_forward(inputs, self.weight, self.bias)
+            # return super()._conv_forward(inputs, self.weight, self.bias)
             outputs = torch.nn.functional.conv2d(
                 inputs,
                 self.weight,
@@ -119,7 +112,7 @@ class Conv2d(torch.nn.Conv2d):
         else:
             outputs = super().forward(inputs)
 
-        if 'output_dtype' in self.specs:
-            outputs = tcast.cast(outputs, dtype=self.specs['output_dtype'])
+        if "output_dtype" in self.specs:
+            outputs = tcast.cast(outputs, dtype=self.specs["output_dtype"])
 
         return outputs
