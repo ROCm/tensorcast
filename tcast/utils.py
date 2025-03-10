@@ -4,11 +4,9 @@
 
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
 
-from enum import Enum
 import importlib
 import logging
 import math
-import os
 import random
 
 import numpy
@@ -68,6 +66,7 @@ def printoptions(precision: int = 8):
     """Set PyTorch printoptions to something useful."""
     torch.set_printoptions(precision=precision, sci_mode=False)
 
+
 logger = None
 
 
@@ -87,54 +86,12 @@ def get_logger(name: str = "tcast") -> logging.Logger:
     fh.setFormatter(formatter)
     logger.addHandler(fh)
     logger.propagate = False
-
-
-def randomize_imatrix(imatrix: torch.Tensor) -> torch.Tensor:
-    """Randomize a Walsh-Hadamard matrix while preserving orthogonality."""
-    diag = torch.diag(torch.randint(0, 2, (imatrix.shape[0],), dtype=imatrix.dtype, device=imatrix.device) * 2 - 1)
-    return diag @ imatrix
-
-
-def get_imatrix(size: int, dtype: torch.dtype = torch.float32, walsh: bool = True, randomize: bool = True) -> torch.Tensor:
-    def sign_changes(matrix):
-        return [sum(int(matrix[j,i] != matrix[j, i+1]) for i in range(size-1)) for j in range(size)]
-    imatrix = torch.tensor([[1, 1], [1, -1]], dtype=dtype).cuda()
-    while imatrix.size(0) < size:
-        imatrix = torch.kron(imatrix, torch.tensor([[1, 1], [1, -1]], dtype=dtype, device=imatrix.device))
-    imatrix /= torch.tensor(size, dtype=dtype, device=imatrix.device).sqrt()
-    if walsh:
-        changes = sign_changes(imatrix)
-        order = torch.tensor(changes, dtype=imatrix.dtype, device=imatrix.device).argsort()
-        imatrix = imatrix[order, :]
-    if randomize:
-        imatrix = randomize_imatrix(imatrix)
-    return imatrix
+    return logger
 
 
 def kurtosis(x):
     """Compute the kurtosis of a tensor."""
     return ref_kurtosis(x.flatten().cpu().numpy(), fisher=True)
-
-
-def getenv(x: str, dflt: str = "", dtype=str, lowprec=False):
-    """Get an environment variable with optional default and type conversion."""
-    x = x.upper()
-    if lowprec and not x.startswith("LP_"):
-        x = f"LP_{x}"
-    elif not x.startswith("FLASH_ATTENTION_TRITON_AMD_"):
-        x = f"FLASH_ATTENTION_TRITON_AMD_{x}"
-    setting = os.getenv(x, dflt).lower()
-    if dtype is bool:
-        return setting in ("1", "true", "yes")
-    if dtype is int and setting.replace("-", "").isdigit():
-        return int(setting)
-    if dtype is float and setting.replace(".", "").replace("-", "").isdigit():
-        return float(setting)
-    if dtype is tuple:
-        return (int(i) for i in setting.split(","))
-    if issubclass(dtype, Enum):
-        return dtype(int(setting)) if setting.isdigit else dtype[setting.upper()]
-    return setting
 
 
 def make_outliers(
@@ -151,20 +108,3 @@ def make_outliers(
         oscale = torch.randint_like(x, 1, range + 1).float().exp2()
         x[mask] *= oscale[mask]
     return x
-
-
-class Singleton(type):
-    """A thread-safe implementation of Singleton."""
-
-    _instances = {}
-
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            instance = super().__call__(*args, **kwargs)
-            cls._instances[cls] = instance
-        return cls._instances[cls]
-
-
-if __name__ == "__main__":
-    imatrix = get_imatrix(8, randomize=True)
-    pass

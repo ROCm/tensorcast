@@ -11,6 +11,7 @@ import tcast
 
 class Linear(torch.nn.Linear):
     """Linear subclass that supports custom accumulation and datatype conversion."""
+
     def __init__(self, in_features, out_features, bias=True, tcast_specs=None, pre_weights=None, pre_bias=None):
         super().__init__(in_features, out_features, bias=bias)
 
@@ -49,6 +50,7 @@ class Linear(torch.nn.Linear):
 
 class Conv2d(torch.nn.Conv2d):
     """Conv2d subclass that supports custom accumulation and datatype conversion."""
+
     def __init__(
         self,
         in_channels,

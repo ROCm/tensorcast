@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# tests/test_icp.py: incoherence processing
+# tests/test_incoherence.py: incoherence processing
 # SPDX-License-Identifier: MIT
 
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
@@ -64,10 +64,14 @@ def test_incoherence_matmul(torch_dtype, size, odim, walsh, randomize, float32, 
         B = tcast.make_outliers(B, scale=outlier_scale, range=outlier_range, prob=outlier_prob)
     if float32:
         M, A, B = M.float(), A.float(), B.float()
+    A_kurtosis = tcast.kurtosis(A)
+    B_kurtosis = tcast.kurtosis(B)
     AB_ref = (A @ B.t()).to(torch_dtype)
     AB_ref_norm = torch.norm(AB_ref).item()
     AM = (A @ M).to(torch_dtype)
     BM = (B @ M).to(torch_dtype)
+    AM_kurtosis = tcast.kurtosis(AM)
+    BM_kurtosis = tcast.kurtosis(BM)
     AB_icp = (AM @ BM.t()).to(torch_dtype)
     AB_icp_norm = torch.norm(AB_icp).item()
     diff_norm = torch.norm(AB_ref - AB_icp).item() / AB_ref_norm
@@ -76,9 +80,7 @@ def test_incoherence_matmul(torch_dtype, size, odim, walsh, randomize, float32, 
     args += " F32MM" if float32 else ""
     if outlier_prob > 0.0:
         args += f" O{outlier_scale}R{outlier_range}P{outlier_prob}"
-    logger.info(f"test_incoherence_matmul({args}): diff_norm={diff_norm} ref_norm={AB_ref_norm} icp_norm={AB_icp_norm}")
+    logger.info(f"test_incoherence_matmul({args}):")
+    logger.info(f"\tnorms:    diff_norm={diff_norm} ref_norm={AB_ref_norm} icp_norm={AB_icp_norm}")
+    logger.info(f"\tkurtosis: A={A_kurtosis} AM={AM_kurtosis} B={B_kurtosis} BM={BM_kurtosis}")
     torch.testing.assert_close(AB_ref, AB_icp)
-
-
-if __name__ == "__main__":
-    pytest.main()

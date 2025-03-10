@@ -4,6 +4,8 @@
 
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
 
+import copy
+
 import torch
 
 from .number import Codebook, NumberSpec
@@ -16,11 +18,13 @@ class DataType:
     registry = {}
 
     def __init__(self, nspec: str | NumberSpec = None, sspec: str | ScaleSpec = None, name: str = None):
+        if name in self.registry:
+            existing_instance = self.registry[name]
+            self.__dict__ = copy.deepcopy(existing_instance.__dict__)
+            return
         if nspec is None:
             if sspec is not None:
                 raise ValueError("DataType must be initialized with either a name or a number spec.")
-            if name in self.registry:
-                return self.registry[name]
             if not isinstance(name, str):
                 raise ValueError("DataType must be initialized with either a name or a number spec.")
             segments = name.split("_")
@@ -32,8 +36,13 @@ class DataType:
                 if len(segments) > 2:
                     sspec = "_".join(segments[2:])
             else:
+                # we have an unregistered name that we can try to figure out
+                newname = name.removeprefix("float8_")  # special case of nspec having an underscore
+                segments = newname.split("_")
                 nspec = segments[0]
-                sspec = "_".join(segments[1:])
+                sspec = None if len(segments) == 1 else "_".join(segments[1:])
+                if not self.valid(nspec, sspec):
+                    raise ValueError(f"DataType '{name}' is ambigous or othewise invalid.")
         self.nspec = (
             nspec
             if isinstance(nspec, NumberSpec)

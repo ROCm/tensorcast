@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# tcast/tricast.py: triton methods for casting
+# tcast/triton.py: triton methods for casting
 # SPDX-License-Identifier: MIT
 # ruff: noqa: D103
 
@@ -17,116 +17,6 @@ from .utils import is_triton_available
 def is_hip():
     return triton.runtime.driver.active.get_current_target().backend == "hip"
 
-
-
-# fmt: off
-@triton.jit
-def as_float(x): return tl.cast(x, tl.float32, bitcast=True)
-@triton.jit
-def as_int(x): return tl.cast(x, tl.int32, bitcast=True)
-@triton.jit
-def as_uint(x): return tl.cast(x, tl.uint32, bitcast=True)
-@triton.jit
-def as_type(x, dtype): return tl.cast(x, dtype, bitcast=True)
-@triton.jit
-def get_exponent(x): return (as_uint(x) >> 23) & 0xFF
-# fmt: off
-@triton.jit
-def lp_enabled(LPCODE: tl.constexpr) -> tl.constexpr: return LPCODE != 0
-@triton.jit
-def lp_forward_type(LPCODE: tl.constexpr) -> tl.constexpr: return LPCODE & 3
-@triton.jit
-def lp_backward_type(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> 2) & 3
-@triton.jit
-def lp_output_type(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> 4) & 3
-@triton.jit
-def lp_scale_type(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> 6) & 3
-@triton.jit
-def lp_scale_scope(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> 8) & 3
-@triton.jit
-def lp_block(LPCODE: tl.constexpr) -> tl.constexpr: return 1 << (((LPCODE >> 10) & 3) + 1)
-@triton.jit
-def lp_icp_qkds(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> 13 & 1) != 0
-@triton.jit
-def lp_icp_pvdo(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> 14 & 1) != 0
-@triton.jit
-def lp_fake(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> 15 & 1) != 0
-@triton.jit
-def lp_nanoo(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> 16 & 1) != 0
-@triton.jit
-def lp_backward(LPCODE: tl.constexpr) -> tl.constexpr: return lp_backward_type(LPCODE) != 0
-@triton.jit
-def lp_output(LPCODE: tl.constexpr) -> tl.constexpr: return lp_output_type(LPCODE) != 0
-@triton.jit
-def lp_icp(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> 13 & 3) != 0
-@triton.jit
-def lp_tensor(LPCODE: tl.constexpr) -> tl.constexpr: return lp_scale_scope(LPCODE) == 0
-@triton.jit
-def lp_scale_is_fp32(CODE: tl.constexpr) -> tl.constexpr: return CODE == 0
-@triton.jit
-def lp_scale_is_fp16(CODE: tl.constexpr) -> tl.constexpr: return CODE == 1
-@triton.jit
-def lp_scale_is_bf16(CODE: tl.constexpr) -> tl.constexpr: return CODE == 2
-@triton.jit
-def lp_scale_is_exponent(CODE: tl.constexpr) -> tl.constexpr: return CODE == 3
-# @triton.jit
-# def lp_get_mbits(LPCODE: tl.constexpr, select: tl.constexpr) -> tl.constexpr:
-#     return MBITS[((LPCODE >> (2 * select)) & 3) - 1][lp_nanoo(LPCODE)]
-# @triton.jit
-# def lp_get_emax(LPCODE: tl.constexpr, select: tl.constexpr) -> tl.constexpr:
-#     return EMAX[((LPCODE >> (2 * select)) & 3) - 1][lp_nanoo(LPCODE)]
-# @triton.jit
-# def lp_get_emin(LPCODE: tl.constexpr, select: tl.constexpr) -> tl.constexpr:
-#     return EMIN[((LPCODE >> (2 * select)) & 3) - 1][lp_nanoo(LPCODE)]
-# @triton.jit
-# def lp_get_maxval(LPCODE: tl.constexpr, select: tl.constexpr) -> tl.constexpr:
-#     return MAXVALS[((LPCODE >> (2 * select)) & 3) - 1][lp_nanoo(LPCODE)]
-# @triton.jit
-# def lp_get_dtype(LPCODE: tl.constexpr, select: tl.constexpr) -> tl.constexpr:
-#     return DTYPES[((LPCODE >> (2 * select)) & 3) - 1][lp_nanoo(LPCODE)]
-# fmt: on
-
-# @triton.jit
-# def scaled_quantize(x, scale, LPCODE: tl.constexpr, select: tl.constexpr, descale=True):
-#     """Returns the quantized x and the scale used."""
-#     tl.static_assert(lp_enabled(LPCODE))
-#     FAKE: tl.constexpr = lp_fake(LPCODE)
-#     EPS: tl.constexpr = 6.10352e-05
-#     MAXVAL: tl.constexpr = lp_get_maxval(LPCODE, select)
-#     if descale:
-#         out = x / scale
-#     else:
-#         out = x * scale
-#     if FAKE:
-#         valexp = tl.floor(tl.log2(tl.maximum(EPS, tl.abs(out))))
-#         rscale = tl.exp2(lp_get_mbits(LPCODE, select) - tl.maximum(valexp, lp_get_emin(LPCODE, select)))
-#         # WTF is there no tl.math.round()?
-#         out *= rscale
-#         out = tl.where(out < 0.0, tl.ceil(out - 0.5), tl.floor(out + 0.5))
-#         out = tl.clamp(out / rscale, -MAXVAL, MAXVAL)
-#         out = tl.cast(out, x.type.element_ty)
-#         # out = tl.clamp(tl.extra.tl.libdevice.rint(out * rscale) / rscale, -MAXVAL, MAXVAL)
-#     else:
-#         out = tl.cast(out, lp_get_dtype(LPCODE, select))
-#     return out
-
-@triton.jit
-def modify_exponent(x, y, direction: int = 0):
-    """Modify the exponent of a float. direction is 1 for add, -1 for subtract, 0 for replace."""
-    x = as_uint(x)
-    if direction == 0:
-        x = tl.where(get_exponent(x) == 0, 0, x & 0x807FFFFF | (y << 23))
-    elif direction == 1:
-        if y >= 127:
-            x = tl.where(get_exponent(x) == 0, 0, x + ((y - 127) << 23))
-        else:
-            x = tl.where(get_exponent(x) == 0, 0, x - ((127 - y) << 23))
-    else:
-        if y >= 127:
-            x = tl.where(get_exponent(x) == 0, 0, x - ((y - 127) << 23))
-        else:
-            x = tl.where(get_exponent(x) == 0, 0, x + ((127 - y) << 23))
-    return as_float(x)
 
 
 @triton.jit
@@ -171,30 +61,7 @@ def get_shared_scale(values, maxfloat):
     return maxfloat / tl.max(tl.abs(values))
 
 
-@triton.jit
-def get_shared_exponent(values, emax, emin, mbits, maxfloat, midmax, scalemode):
-    """Find the shared exponent for a block of values."""
-    CEIL: tl.constexpr = 1
-    MIDMAX: tl.constexpr = 2
-    OPTION3: tl.constexpr = 3
-    TOPBINADE: tl.constexpr = 4
-    absmax = tl.max(tl.abs(values))
-    shared_exp = get_exponent(absmax)  # shared_exp is a biased exponent
-    # set the exponent of absmax to emax comparing with midmax, maxfloat, etc.
-    absmax = modify_exponent(absmax, 127 + emax)
-    increment = tl.zeros_like(shared_exp)
-    if scalemode == CEIL:
-        increment = as_uint(tl.where(as_uint(absmax) & 0x007FFFFF != 0, 1, 0))
-    elif scalemode == MIDMAX:
-        increment = as_uint(tl.where(absmax >= midmax, 1, 0))
-    if scalemode == TOPBINADE:
-        increment = as_uint(tl.where(absmax > maxfloat, 1, 0))
-    if scalemode == OPTION3:
-        rounded = quantize_float(absmax, 127, emin, mbits, maxfloat, 2, 19, clip=False)
-        increment = as_uint(tl.where(get_exponent(as_uint(rounded)) != 127 + emax, 1, 0))
-    # returns the biased exponent, adjusted by the dtype's emax
-    shared_exp = shared_exp + increment - emax
-    return shared_exp
+
 
 
 @triton.jit
@@ -327,32 +194,8 @@ def store_tensors( # fmt: off
                 tl.store(z_block, zptr.to(z_ten.dtype))
 
 
-@triton.jit
-def modify_exponent(x, num, add: bool = False, subtract: bool = False, bias: bool = False):
-    """Modify the exponent of a floating point number passed in as bits."""
-    num = (num + (127 if bias else 0)) << 23
-    return x + num if add else x - num if subtract else (x & 0x8007FFFF) + num
 
 
-@triton.jit
-def get_exponent(x, bias: bool = False):
-    """Get the mantissa of a floating point number passed in as bits."""
-    return ((x >> 23) & 0xFF) - (0 if bias else 127)
-
-
-@triton.jit
-def round(x: tl.tensor, roundmode: RoundMode, seed: int = 42) -> tl.tensor:
-    """Round floating point."""
-    if roundmode == RoundMode.STOCHASTIC:
-        rand_ptr = tl.randn(seed, x.shape, nrounds=1)
-        return tl.libdevice.trunc(x + tl.where(x < 0, -rand_ptr), rand_ptr)
-    if roundmode == RoundMode.EVEN:
-        return tl.libdevice.rint(x)
-    if roundmode == RoundMode.AWAY:
-        return tl.libdevice.round(x)
-    if roundmode == RoundMode.ZERO:
-        trunc = tl.libdevice.trunc(x)
-        return tl.where(x - trunc == 0.5, trunc, tl.libdevice.round(x))
 
 
 # @triton.jit
@@ -366,51 +209,6 @@ def round(x: tl.tensor, roundmode: RoundMode, seed: int = 42) -> tl.tensor:
 #     return x.to(tl.float32, bitcast=True).clamp(-maxfloat, maxfloat)
 
 
-@triton.jit
-def quantize_float( # fmt: off
-    values: tl.tensor, scale: tl.tensor, emax: int, emin: int, mbits: int, maxfloat: float,
-    roundmode: RoundMode, seed: int, clip: bool = True,
-) -> tl.tensor: # fmt: on
-    """Quantize the float values to an int scale (unbiased power of 2), exponent (OCP MX biased scale), or float scale."""
-    # get scale as unbiased scale exponent
-    if scale.dtype.is_floating():
-        values /= scale
-        shared_exp = tl.zeros(scale.shape, dtype=tl.uint32)
-        roundmode = RoundMode.FLOOR
-    elif scale.dtype.is_int_signed():
-        shared_exp = (scale - emax).to(tl.uint32)
-    else:
-        shared_exp = scale.to(tl.uint32) - 127
-    values = values.to(tl.uint32, bitcast=True)
-    values = modify_exponent(values, shared_exp, subtract=True)
-    rscale = mbits - get_exponent(values, bias=False).clamp(min=emin)
-    values = modify_exponent(values, rscale, add=True, bias=False)
-    values = round(values.to(tl.float32, bitcast=True), roundmode, seed).to(tl.uint32, bitcast=True)
-    values = modify_exponent(values, rscale, subtract=True)
-    if clip:
-        values = values.to(tl.float32, bitcast=True).clamp(min=-maxfloat, max=maxfloat)
-    return values
-
-
-@triton.jit
-def get_shared_exponent(
-    vals: tl.tensor, emax: int, emin: int, mbits: int, maxfloat: float, midmax: float, scalemode: ScaleMode
-) -> tl.tensor:
-    """Find the shared exponent for a block of values. vals is cast to float and absolute value."""
-    absmax = tl.abs(vals).max().to(dtype=tl.uint32, bitcast=True)
-    has_mant = absmax & 0x7FFFFF != 0
-    shared_exp = get_exponent(absmax, bias=True)
-    absmax = modify_exponent(absmax, emax, replace=True, bias=True).to(tl.float32, bitcast=True)
-    if scalemode == ScaleMode.MIDMAX:
-        shared_exp[absmax >= midmax] += 1
-    elif scalemode == ScaleMode.CEIL:
-        shared_exp[has_mant] += 1
-    elif scalemode == ScaleMode.TOPBINADE:
-        shared_exp[absmax > maxfloat] += 1
-    elif scalemode == ScaleMode.OPTION3:
-        rounded = quantize_float(absmax, shared_exp - emax, emax, emin, mbits, maxfloat, RoundMode.EVEN, None, clip=False)
-        shared_exp[get_exponent(rounded.to(dtype=tl.uint32, bitcast=True), bias=True) != shared_exp] += 1
-    return (shared_exp - emax).to(tl.uint8)
 
 
 # @triton.jit
@@ -648,9 +446,8 @@ class TritonCast:
         if not TritonCast.supports(tensor):
             return False
 
-        tensor.precast()
         nspec, sspec = tensor.dtype.nspec, tensor.dtype.sspec
-        t = tensor.original
+        t = tensor.input
         input_info = (t, t.size(0), t.size(1), t.stride(0), t.stride(1))
         output_info = get_tensor_info(tensor, "tensor")
         scale_info = get_tensor_info(tensor, "scale")

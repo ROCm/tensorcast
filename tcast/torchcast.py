@@ -5,15 +5,15 @@
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
 
 from collections.abc import Callable
-import logging
 
 import torch
 
 from .common import CastMode, Modes, RoundMode, ScaleMode
 from .number import NumberSpec
 from .tensor import Tensor
+from .utils import get_logger
 
-logger = logging.getLogger(f"tcast.{__name__}")
+logger = get_logger("tcast")
 
 
 class TorchCast:
@@ -43,8 +43,8 @@ class TorchCast:
 
     @staticmethod
     def cast_unscaled(tensor: Tensor):
-        x = TorchCast._cast_unscaled(tensor.tensor, tensor.dtype.nspec)
-        tensor.update(tensor=x)
+        x = TorchCast._cast_unscaled(tensor.input, tensor.dtype.nspec)
+        tensor.update(output=x)
 
     @staticmethod
     def select_codebook_meta(tensor: Tensor) -> None:
@@ -68,13 +68,12 @@ class TorchCast:
         tensor.update(meta=master_meta)
 
     @staticmethod
-    def apply_codebook(tensor: Tensor, premeta: bool = False, better: Callable = None) -> None:
+    def apply_codebook(tensor: Tensor, better: Callable = None) -> None:
         """Cast to codebooks in tensor.meta.  Create meta if not already selected."""
         assert tensor.dtype.is_codebook
         nspec, sspec = tensor.dtype.nspec, tensor.dtype.sspec
-        x = tensor.reshape(subtile=sspec.subtile)
-        if not tensor.premeta:
-            TorchCast.select_codebook_meta(tensor, better)
+        x = tensor.input
+        TorchCast.select_codebook_meta(tensor, better)
         scale = (tensor.scale - sspec.scale.bias).exp2()
         tmap, tmid = nspec.get_codebook(torch_dtype=x.dtype, device=x.device)
         t = x / scale  # scale x into range of the compute dtype, which is where the codebooks are
@@ -88,15 +87,14 @@ class TorchCast:
             out[ge] = tmap[ge, i]
         if nspec.symmetric:
             out = out * x.sign()
-        tensor.update(tensor=out * scale)
-        tensor.reshape()
+        tensor.update(output=out * scale)
 
     @staticmethod
     def apply_scales(tensor: Tensor) -> None:
         """Given scales, return cast tensor."""
         nspec, sspec = tensor.dtype.nspec, tensor.dtype.sspec
         assert tensor.has_scales and not nspec.is_codebook and not sspec.is_subtile
-        x, scale, zero = tensor.reshape(), tensor.scale, tensor.zero
+        x, scale, zero = tensor.input, tensor.scale, tensor.zero
         minint, maxint, maxfloat = nspec.finfo.minint, nspec.finfo.maxint, nspec.finfo.maxfloat
         if nspec.is_uint:
             assert zero is not None
@@ -119,31 +117,31 @@ class TorchCast:
             valexp = TorchCast.get_exponents(x).clamp_min(nspec.emin)  # get the independent exponents, clipped to emin
             rscale = (nspec.mbits - valexp).exp2()
             x = TorchCast.round(x * rscale).div(rscale).clamp(-maxfloat, maxfloat) * scale
-        tensor.update(tensor=x)
-        tensor.reshape()
+        tensor.update(output=x)
 
     @staticmethod
     def apply_sparsity_mask(tensor: Tensor) -> None:
         """Simple structured sparsity, M of N, where M is dense values retained out of N."""
         assert not tensor.has_mask and not tensor.is_compressed and tensor.dtype.is_sparse
-        x = tensor.reshape(sparse=True)
+        x = tensor.input
         idx = x.abs().argsort(dim=-1, descending=True)
         premask = torch.full(x.shape, True, dtype=torch.bool, device=tensor.device)
         mask = torch.empty_like(premask)
         premask[..., : tensor.dtype.sspec.dense] = False
         mask.scatter_(-1, idx, premask)
-        mask = tensor.reshape(sparse=True, mask=mask)  # this will reshape/unpad the mask as well
-        x[mask] = 0.0 # for virtual
-        x = x[not mask] # for compressed
-        tensor.update(x, mask=mask)
+        if Modes.cast == CastMode.COMPRESS:
+            x = x[not mask]
+        else:
+            x[mask] = 0.0
+        tensor.update(output=x, mask=mask)
 
     @staticmethod
     def select_scales(tensor: Tensor) -> None:
         """Find the scales for a tensor."""
         nspec, sspec = tensor.dtype.nspec, tensor.dtype.sspec
         assert nspec and sspec
-        x = tensor.reshape(subtile=False)
         dim = None if sspec.is_tensor else -1
+        x = tensor.input
         if nspec.is_uint:
             assert sspec.scale.is_float and sspec.zero
             tmin, tmax = torch.aminmax(x, dim=dim, keepdim=True)
@@ -161,7 +159,7 @@ class TorchCast:
                 maxexp = TorchCast.get_exponents(x).amax(dim=dim, keepdim=True)
             else:
                 absmax = x.abs().amax(dim=dim, keepdim=True)
-                maxexp = TorchCast.get_exponents(absmax) # this constitutes the FLOOR method
+                maxexp = TorchCast.get_exponents(absmax)  # this constitutes the FLOOR method
                 if Modes.scale == ScaleMode.CEIL:
                     maxexp = (absmax + torch.finfo(x.dtype).eps).log2().ceil().int()
                 elif Modes.scale == ScaleMode.OPTION3:
@@ -182,11 +180,11 @@ class TorchCast:
             else:
                 # int scale is the actual unbiased exponent
                 scale = maxexp.to(torch.int8)
+        assert (zero is None) != nspec.is_uint
         tensor.update(scale=scale, zero=zero if nspec.is_uint else None)
-        tensor.reshape()
 
     @staticmethod
-    def supports(tensor: Tensor,) -> bool:
+    def supports(tensor: Tensor) -> bool:
         """Check if the cast operation is supported by in the torch code."""
         return Modes.cast != CastMode.COMPRESS
 

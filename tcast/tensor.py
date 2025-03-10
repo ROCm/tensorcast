@@ -49,10 +49,10 @@ class Tensor:
         self.shape_transforms = []
         self.shape_info = {}
 
-    @property
-    def tensor(self) -> torch.Tensor:
-        """Get the tensor data."""
-        return self.input
+    # @property
+    # def tensor(self) -> torch.Tensor:
+    #     """Get the tensor data."""
+    #     return self.input
 
     def get_scaledata(self) -> ScaleData:
         """Get the scale data for the tensor."""
@@ -63,6 +63,10 @@ class Tensor:
     def get_torch_dtypes(self, name: str) -> tuple[torch.dtype, torch.dtype, int, int]:
         """Get the actual and compressed torch types and compressed packing factor for a tensor."""
         nspec, sspec = self.dtype.nspec, self.dtype.sspec
+        if sspec is None:
+            assert self.dtype.is_unscaled
+            adtype = nspec.torch_dtype if name == "output" else None
+            return adtype, adtype, 1, 1
         if name == "mask":
             return torch.bool, torch.uint8, 8, 1
         sratio = sspec.sparse_ratio if name == "output" else 1
@@ -120,8 +124,9 @@ class Tensor:
     def precast(self):
         """Prior to cast, set up tensors."""
         if self.dtype.is_unscaled:
+            self.output = torch.zeros_like(self.input, dtype=self.get_shapeinfo("output").get_info(Modes.cast)[1])
             return self
-        if self.original.ndim > 4:
+        if self.input.ndim > 4:
             raise NotImplementedError("More than 4D shapes are not supported.")
         if self.dtype.is_tensor and Modes.cast != CastMode.COMPRESS:
             # no need for reshape, just create the tensors
@@ -161,12 +166,11 @@ class Tensor:
                             {"b": self.original_shape[0], "h": self.original_shape[2], "w": self.original_shape[3]},
                         )
                     )
-
-            sspec = self.dtype.sspec
-            size0, size1, tile0, tile1, subtile0, subtile1, _, _ = sspec.get_tile_info(*self.input.size(), self.transpose_scale)
-
             if self.transpose_scale:
                 self.input = rearrange(self.input, "n c -> c n")
+            size0, size1 = self.input.size()
+            sspec = self.dtype.sspec
+            tile0, tile1, subtile0, subtile1, _, _ = sspec.get_tile_info(size0, size1, Modes.cast == CastMode.VIRTUAL)
 
             if Modes.compute == ComputeMode.TORCH:
                 if size0 % tile0 != 0 or size1 % tile1 != 0:
@@ -216,3 +220,10 @@ class Tensor:
                 self.meta = self.meta.transpose(0, 1)
             if self.mask is not None:
                 self.mask = self.mask.transpose(0, 1)
+
+    def update(self, **kwargs):
+        """Update the tensors during cast."""
+        for key, value in kwargs.items():
+            if isinstance(value, torch.Tensor):
+                assert hasattr(self, key) and isinstance(getattr(self, key), torch.Tensor)
+                getattr(self, key).copy_(value)

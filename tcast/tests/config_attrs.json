@@ -1,0 +1,17 @@
+{
+    "code": null,
+    "json_path": null,
+    "shortcut": null,
+    "block_size": [32, 32],
+    "block_axes": [0, 1],
+    "scale_dtype": "none",
+    "q_dtype": "float8_e4m3fnuz",
+    "k_dtype": "float8_e4m3fnuz",
+    "v_dtype": "float8_e4m3fnuz",
+    "p_dtype": "float8_e5m2fnuz",
+    "ds_dtype": "float8_e5m2fnuz",
+    "do_dtype": "float8_e5m2fnuz",
+    "icp_qk": true,
+    "icp_pv": false,
+    "icp_fp32": false
+}

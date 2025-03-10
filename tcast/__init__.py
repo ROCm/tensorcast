@@ -7,6 +7,7 @@
 import torch
 
 from .common import CastMode, ComputeMode, Modes, RoundMode, ScaleMode, get_enum
+from .config import LPConfig
 from .datatype import DataType
 from .injector import mixed_precision_injector, torch_injector
 from .number import Codebook, NumberLine, NumberSpec
@@ -224,8 +225,8 @@ def cast(
     else:
         raise NotImplementedError("tcast.cast: datatype conversion not yet implemented in Triton or Torch")
     tensor.postcast()
-    if Modes.castmode == CastMode.VIRTUAL:
-        torch_tensor = tensor.tensor.to(out_dtype)
+    if Modes.cast == CastMode.VIRTUAL:
+        torch_tensor = tensor.output.to(out_dtype)
         del tensor
         tensor = torch_tensor
     Modes.restore_modes()
