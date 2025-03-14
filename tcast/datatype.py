@@ -37,10 +37,13 @@ class DataType:
                     sspec = "_".join(segments[2:])
             else:
                 # we have an unregistered name that we can try to figure out
-                newname = name.removeprefix("float8_")  # special case of nspec having an underscore
-                segments = newname.split("_")
-                nspec = segments[0]
-                sspec = None if len(segments) == 1 else "_".join(segments[1:])
+                segments = name.split("_")
+                if len(segments > 1) and NumberSpec.valid("_".join(segments[:2])):
+                    nspec = "_".join(segments[:2])
+                    sspec = "_".join(segments[2:])
+                else:
+                    nspec = segments[0]
+                    sspec = None if len(segments) == 1 else "_".join(segments[1:])
                 if not self.valid(nspec, sspec):
                     raise ValueError(f"DataType '{name}' is ambigous or othewise invalid.")
         self.nspec = (
@@ -48,7 +51,7 @@ class DataType:
             if isinstance(nspec, NumberSpec)
             else Codebook(nspec)
             if str(nspec).lower().startswith("cb")
-            else NumberSpec(nspec)
+            else NumberSpec(str(nspec))
         )
         self.sspec = sspec if isinstance(sspec, ScaleSpec) else ScaleSpec(sspec) if sspec else None
         self._name = name
