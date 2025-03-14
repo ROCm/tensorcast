@@ -57,7 +57,7 @@ def round_func(sign, mantisa, rmode, mbits, mantisaNotScaled, scale):
             add = adds[mbits + 1]
             mantisa += add & opmasks[((mantisa & mask) != mask)]
             return mantisa & mask
-    elif rmode == "nearest":
+    elif rmode == "away":
         add = adds[mbits + 1]
         mantisa += add & opmasks[((mantisa & mask) != mask)]
         return mantisa & mask
@@ -129,7 +129,7 @@ def block_to_bfp(tensor, dtype, rmode):
 
 
 def tensor_to_bfp(tensor, axis, dtype, rmode):
-    blocksize = dtype.sspec.tile
+    blocksize = dtype.sspec.tile1
     ftensor = tensor.nan_to_num(nan=0.0).float()  # d0, d1, ... d_(axis), ..., dn
     ftensor = ftensor.permute(
         *[i for i in range(axis)], *[i for i in range(axis + 1, ftensor.ndim)], axis

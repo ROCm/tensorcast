@@ -20,12 +20,7 @@ from tqdm import tqdm
 import tcast
 
 
-def set_seed(seed):
-    np.random.seed(seed)
-    torch.random.manual_seed(seed)
-
-
-def seed_worker(worker_id):
+def seed_worker(worker_seed):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
@@ -111,15 +106,14 @@ if __name__ == "__main__":
         args.device = torch.device("cuda:0")
     else:
         args.device = torch.device("cpu")
-    set_seed(args.seed)
+    tcast.set_seed(args.seed)
 
     train_loader, test_loader = imagenet_loader(args)
     model = get_model(args)
     test_accuracy(model, test_loader, args.device, (1, 5))
 
     # Using the custom layers in the model
-    bfp16ebs8_t = tcast.DataType("int8", "e8m0_t8", "bfp16ebs8_t")
-    tcast_specs = {"weight_dtype": bfp16ebs8_t, "input_dtype": bfp16ebs8_t, "output_dtype": bfp16ebs8_t}
+    tcast_specs = {"weight_dtype": tcast.bfp16, "input_dtype": tcast.bfp16, "output_dtype": tcast.bfp16}
     tcast.torch_injector(tcast_specs)
 
     model_custom = get_model(args)

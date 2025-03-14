@@ -20,11 +20,11 @@ class ScaleSpec:
     tile1: int = None
     subtile0: int = None
     subtile1: int = None
-    sparse_n: int = 1  # per the literature, M is the total values and M is the dense values
+    sparse_n: int = 1  # per the literature, M is the total values and N is the dense values
     sparse_m: int = 1  # even if that makes no sense to me whatsoever
     scale: NumberSpec = None
     zero: NumberSpec = None
-    tensor: NumberSpec = None
+    _tenscale: NumberSpec = None
 
     def __init__(self, code: str):
         self._decode(code)
@@ -44,9 +44,11 @@ class ScaleSpec:
     @property
     def is_sparse(self) -> bool: return self.sparse_m > 1
     @property
-    def is_multiscale(self) -> bool: return self.tensor is not None
+    def is_multiscale(self) -> bool: return self._tenscale is not None
     @property
     def sparse_ratio(self) -> int: return cdiv(self.sparse_m, self.sparse_n)
+    @property
+    def tenscale(self) -> NumberSpec: return self._tenscale or self.scale
     # fmt: on
 
     def get_tile_info(self, size0: int = None, size1: int = None, virtual: bool = True) -> tuple[int]:
@@ -73,7 +75,7 @@ class ScaleSpec:
         if tval is None:
             # this is a tensor scale
             if self.zero is not None:
-                self.tensor, self.zero = self.zero, None
+                self._tenscale, self.zero = self.zero, None
             return
         tile = int(tval)
         subtile = int(sval[1:]) if sval else None

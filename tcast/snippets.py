@@ -83,7 +83,9 @@ LP_QUANT_E4M3FNUZ: tl.constexpr = 4
 LP_QUANT_E3M2FNUZ: tl.constexpr = 5
 LP_QUANT_E2M3FNUZ: tl.constexpr = 6
 LP_QUANT_E2M1FNUZ: tl.constexpr = 7
-LP_QUANT_TLTYPE: tl.constexpr = [tl.fp8e5, tl.fp8e5b16, tl.fp8e4nv, tl.fp8e4b8, tl.fp8e4nv, tl.fp8e4nv, tl.fp8e4nv]
+LP_QUANT_TLTYPE: tl.constexpr = [
+    tl.float8e5, tl.float8e5b16, tl.float8e4nv, tl.float8e4b8, tl.float8e4nv, tl.float8e4nv, tl.float8e4nv
+]
 
 
 # these functions use the constants above to extract the configuration
@@ -344,7 +346,7 @@ def quantize_float(
     if VIRTUAL:
         values /= scale
     if COMPRESSED and target_code == LP_QUANT_E2M1FNUZ:
-        values = as_uint(values.to(tl.fp8e4nv))
+        values = as_uint(values.to(tl.float8e4nv))
         ((values >> 28) & 0x4) | (max(126, ((x >> 23) & 0x7f) - 126) << 1) | (x >> 23) & 1
         values = ((values >> 4) & 0x7) | ((values >> 2) & 3)
     else:

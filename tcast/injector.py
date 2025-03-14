@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# tcast/injector.py: monkey patch for quant versions of modules
+# tcast/injector.py: monkey patch for quantized versions of modules
 # SPDX-License-Identifier: MIT
 
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""

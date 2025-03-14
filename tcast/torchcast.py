@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# tcast/cast.py: casting methods using torch
+# tcast/torchcast.py: casting methods using torch
 # SPDX-License-Identifier: MIT
 
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
@@ -142,6 +142,7 @@ class TorchCast:
         assert nspec and sspec
         dim = None if sspec.is_tensor else -1
         x = tensor.input
+        zero = None
         if nspec.is_uint:
             assert sspec.scale.is_float and sspec.zero
             tmin, tmax = torch.aminmax(x, dim=dim, keepdim=True)
@@ -181,7 +182,7 @@ class TorchCast:
                 # int scale is the actual unbiased exponent
                 scale = maxexp.to(torch.int8)
         assert (zero is None) != nspec.is_uint
-        tensor.update(scale=scale, zero=zero if nspec.is_uint else None)
+        tensor.update(scale=scale, zero=zero)
 
     @staticmethod
     def supports(tensor: Tensor) -> bool:

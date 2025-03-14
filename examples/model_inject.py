@@ -29,12 +29,10 @@ if __name__ == "__main__":
     model = NonTcastModel()
     input_fp32 = torch.randn(3, 8, 18)
     output_fp32 = model(input_fp32)
-    bfp16ebs8_t = tcast.DataType("int8", "e8m0_t8", "bfp16ebs8_t")
-    bfp16ebs16_t = tcast.DataType("int8", "e8m0_t16", "bfp16ebs16_t")
     tcast_specs = {
-        "fc1": {"weight_dtype": bfp16ebs8_t},
-        "fc2": {"weight_dtype": bfp16ebs16_t},
-        "conv": {"weight_dtype": bfp16ebs8_t},
+        "fc1": {"weight_dtype": tcast.bfp16},
+        "fc2": {"weight_dtype": tcast.bfp16t16},
+        "conv": {"weight_dtype": tcast.bfp16},
     }
     model_mixed = tcast.MixedPrecisionInjector(model, tcast_specs)
     output_bfp16 = model_mixed(input_fp32)

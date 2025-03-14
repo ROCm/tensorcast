@@ -14,6 +14,28 @@ from scipy.stats import kurtosis as ref_kurtosis
 import torch
 import triton
 
+logger = None
+
+
+def get_logger(name: str = "tcast") -> logging.Logger:
+    """Set up logging."""
+    global logger
+    if logger is not None:
+        return logger
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s %(message)s", datefmt="%m/%d/%Y %I:%M:%S %p")
+    ch = logging.StreamHandler()
+    ch.setFormatter(formatter)
+    ch.setLevel(logging.INFO)
+    logger.addHandler(ch)
+    fh = logging.FileHandler((name + ".log").replace(".log.log", ".log"), mode="w")
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    logger.propagate = False
+    return logger
+
 
 # fmt: off
 def is_triton_available() -> bool: return importlib.util.find_spec("triton") is not None
@@ -33,15 +55,16 @@ def maybe_contiguous(x: torch.Tensor): return x.contiguous() if x is not None an
 # fmt: on
 
 
-def set_seed(seed=0):
+def set_seed(seed=0, backend: bool = False):
     """Set random seeds for reproducibility."""
     random.seed(seed)
     numpy.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
+    if backend:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = True
     if importlib.util.find_spec("transformers") is not None:
         import transformers
 
@@ -65,28 +88,6 @@ def cleanup_memory():
 def printoptions(precision: int = 8):
     """Set PyTorch printoptions to something useful."""
     torch.set_printoptions(precision=precision, sci_mode=False)
-
-
-logger = None
-
-
-def get_logger(name: str = "tcast") -> logging.Logger:
-    """Set up logging."""
-    global logger
-    if logger is not None:
-        return logger
-    logger = logging.getLogger(name)
-    formatter = logging.Formatter("%(asctime)s %(message)s", datefmt="%m/%d/%Y %I:%M:%S %p")
-    ch = logging.StreamHandler()
-    ch.setFormatter(formatter)
-    ch.setLevel(logging.INFO)
-    logger.addHandler(ch)
-    fh = logging.FileHandler((name + ".log").replace(".log.log", ".log"), mode="w")
-    fh.setLevel(logging.INFO)
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
-    logger.propagate = False
-    return logger
 
 
 def kurtosis(x):

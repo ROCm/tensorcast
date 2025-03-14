@@ -37,7 +37,7 @@ def manual_inject(in_fp32, layer_fp32, tcast_specs):
 
 
 if __name__ == "__main__":
-    bfp16ebs8_t = tcast.DataType("int8", "e8m0_t8", "bfp16ebs8_t")
+    tcast.initialize("even", "floor", "virtual", "torch")
     layer_fp32 = torch.nn.Linear(64, 64)
     input_fp32 = torch.randn(64, 64)
 
@@ -48,15 +48,15 @@ if __name__ == "__main__":
     output_bfp16_1 = manual_inject(input_fp32, layer_fp32, tcast_specs)
     print(f"l2 norm error none: {torch.norm(output_fp32 - output_bfp16_1)}")
 
-    tcast_specs = {"weight_dtype": bfp16ebs8_t}
+    tcast_specs = {"weight_dtype": tcast.bfp16}
     output_bfp16_1 = manual_inject(input_fp32, layer_fp32, tcast_specs)
     print(f"l2 norm error weights-only: {torch.norm(output_fp32 - output_bfp16_1)}")
 
-    tcast_specs = {"weight_dtype": bfp16ebs8_t, "input_dtype": bfp16ebs8_t}
+    tcast_specs = {"weight_dtype": tcast.bfp16, "input_dtype": tcast.bfp16}
     output_bfp16_1 = manual_inject(input_fp32, layer_fp32, tcast_specs)
     print(f"l2 norm error weights and input: {torch.norm(output_fp32 - output_bfp16_1)}")
 
-    tcast_specs = {"weight_dtype": bfp16ebs8_t, "input_dtype": bfp16ebs8_t, "output_dtype": bfp16ebs8_t}
+    tcast_specs = {"weight_dtype": tcast.bfp16, "input_dtype": tcast.bfp16, "output_dtype": tcast.bfp16}
     output_bfp16_1 = manual_inject(input_fp32, layer_fp32, tcast_specs)
     print(f"l2 norm error weight, input, and output: {torch.norm(output_fp32 - output_bfp16_1)}")
 
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     layer_fp32_2 = torch.nn.Linear(64, 64)
     # same weights and biases
     with torch.no_grad():
-        layer_fp32_2.weight = torch.nn.parameter.Parameter(tcast.cast(layer_fp32.weight, dtype=bfp16ebs8_t))
+        layer_fp32_2.weight = torch.nn.parameter.Parameter(tcast.cast(layer_fp32.weight, dtype=tcast.bfp16))
         layer_fp32_2.bias = layer_fp32.bias
 
     output_bfp16_2 = layer_fp32_2(input_fp32)

@@ -4,10 +4,13 @@
 
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
 
+from pathlib import Path
+from typing import overload
+
 import torch
 
 from .common import CastMode, ComputeMode, Modes, RoundMode, ScaleMode, get_enum
-from .config import LPConfig
+from .config import LPConfig, Shortcut
 from .datatype import DataType
 from .injector import mixed_precision_injector, torch_injector
 from .number import Codebook, NumberLine, NumberSpec
@@ -17,7 +20,6 @@ from .torchcast import TorchCast
 from .tritoncast import TritonCast
 from .utils import (
     cdiv,
-    get_imatrix,
     get_logger,
     is_float8_available,
     is_float8_fnuz_available,
@@ -26,7 +28,7 @@ from .utils import (
     make_outliers,
     next_power_of_2,
     printoptions,
-    randomize_imatrix,
+    set_seed,
 )
 
 __version__ = "0.3.0"
@@ -60,9 +62,9 @@ float8_e4m3fnuz = DataType("float8_e4m3fnuz")
 bf8 = e5m2 = float8_e5m2
 fp8 = e4m3fn = float8_e4m3fn
 
-# MI300 8-bit unscaled datatypes
-e5m2fnuz = float8_e5m2fnuz
-e4m3fnuz = float8_e4m3fnuz
+# MI300 8-bit unscaled nanoo datatypes
+bf8n = e5m2fnuz = float8_e5m2fnuz
+fp4n = e4m3fnuz = float8_e4m3fnuz
 
 # IEEE P3109 8-bit unscaled datatypes
 binary8p1 = DataType("e7m0b63inuz", name="binary8p1")
@@ -74,54 +76,98 @@ binary8p6 = DataType("e2m5b2inuz", name="binary8p6")
 
 ### tensor scaled
 
-# scale codes f=float16 (for uintK and int16 only), b=float32, f=e5m3, e=e8m0, i=int8
-# uint has two (scale and zero point)
+# scale codes F=float32, f=float16, b=bfloat16, e=e8m0, n=e4m3
+# uint has two (scale and zero point), int has just the scale
 
-uint16_ff = DataType("uint16", "float16_float16", "uint16_ff")
-uint16_bb = DataType("uint16", "bfloat16_bfloat16", "uint16_bb")
-uint16_fi = DataType("uint16", "float16_int16", "uint16_fi")
-uint16_bi = DataType("uint16", "bfloat16_int16", "uint16_bi")
-
-uint8_ff = DataType("uint16", "float16_float16", "uint8_ff")
-uint8_bb = DataType("uint16", "bfloat16_bfloat16", "uint8_bb")
-uint8_fi = DataType("uint16", "float16_int8", "uint8_fi")
+uint8_FF = DataType("uint8", "float32_float32", "uint8_FF")
+uint8_ff = DataType("uint8", "float16_float16", "uint8_ff")
+uint8_bb = DataType("uint8", "bfloat16_bfloat16", "uint8_bb")
+uint8_Fi = DataType("uint8", "float32_int8", "uint8_Fi")
+uint8_fi = DataType("uint8", "float16_int8", "uint8_fi")
 uint8_bi = DataType("uint8", "bfloat16_int8", "uint8_bi")
+uint8_ni = DataType("uint8", "e4m3_int8", "uint8_ni")
+uint8_ei = DataType("uint8", "e8m0_int8", "uint8_ei")
 
-int16_f = DataType("int8", "float16", "int16_f")
-int16_b = DataType("int8", "bfloat16", "int16_b")
-int16_e = DataType("int8", "e8m0", "int16_e")
-
+int8_F = DataType("int8", "float32", "int8_F")
 int8_f = DataType("int8", "float16", "int8_f")
 int8_b = DataType("int8", "bfloat16", "int8_b")
+int8_n = DataType("int8", "e4m3", "int8_n")
 int8_e = DataType("int8", "e8m0", "int8_e")
 
-e5m2_e = DataType("e5m2", "e8m0", "e5m2_e")
-e4m3_e = DataType("e4m3fn", "e8m0", "e4m3_e")
+bf8_F = DataType("e5m2", "float32", "bf8_F")
+bf8_f = DataType("e5m2", "float16", "bf8_f")
+bf8_b = DataType("e5m2", "bfloat16", "bf8_b")
+bf8_n = DataType("e5m2", "e4m3", "bf8_n")
+bf8_e = DataType("e5m2", "e8m0", "bf8_e")
+bf8n_F = DataType("e5m2fnuz", "float32", "bf8n_F")
+bf8n_f = DataType("e5m2fnuz", "float16", "bf8n_f")
+bf8n_b = DataType("e5m2fnuz", "bfloat16", "bf8n_b")
+bf8n_n = DataType("e5m2fnuz", "e4m3", "bf8n_n")
+bf8n_e = DataType("e5m2fnuz", "e8m0", "bf8n_e")
+
+fp8_F = DataType("e4m3fn", "float32", "fp8_F")
+fp8_f = DataType("e4m3fn", "float16", "fp8_f")
+fp8_b = DataType("e4m3fn", "bfloat16", "fp8_b")
+fp8_n = DataType("e4m3fn", "e4m3", "fp8_n")
+fp8_e = DataType("e4m3fn", "e8m0", "fp8_e")
+fp8n_F = DataType("e4m3fnuz", "float32", "fp8n_F")
+fp8n_f = DataType("e4m3fnuz", "float16", "fp8n_f")
+fp8n_b = DataType("e4m3fnuz", "bfloat16", "fp8n_b")
+fp8n_n = DataType("e4m3fnuz", "e4m3", "fp8n_n")
+fp8n_e = DataType("e4m3fnuz", "e8m0", "fp8n_e")
 
 ### channel scaled
+uint8_FFc = DataType("uint8", "float32_float32", "uint8_FFc")
+uint8_ffc = DataType("uint8", "float16_float16", "uint8_ffc")
+uint8_bbc = DataType("uint8", "bfloat16_bfloat16", "uint8_bbc")
+uint8_Fic = DataType("uint8", "float32_int8", "uint8_Fic")
+uint8_fic = DataType("uint8", "float16_int8", "uint8_fic")
+uint8_bic = DataType("uint8", "bfloat16_int8", "uint8_bic")
+uint8_nic = DataType("uint8", "e4m3_int8", "uint8_nic")
+uint8_eic = DataType("uint8", "e8m0_int8", "uint8_eic")
 
-# t0 indicates channel, default dim is -1, explicit dim (such as 0) encoded with t0d0
+uint4_FFc = DataType("uint4", "float32_float32_t0", "uint84_FFc")
+uint4_ffc = DataType("uint4", "float16_float16_t0", "uint4_ffc")
+uint4_bbc = DataType("uint4", "bfloat16_bfloat16_t0", "uint4_bbc")
+uint4_Fic = DataType("uint4", "float32_int8_t0", "uint4_Fic")
+uint4_fic = DataType("uint4", "float16_int8_t0", "uint4_fic")
+uint4_bic = DataType("uint4", "bfloat16_int8_t0", "uint4_bic")
+uint4_nic = DataType("uint4", "e4m3_int8_t0", "uint4_nic")
+uint4_eic = DataType("uint4", "e8m0_int8_t0", "uint4_eic")
 
-uint16_ff = DataType("uint16", "float16_float16_t0", "uint16_ffc")
-uint16_bb = DataType("uint16", "bfloat16_bfloat16_t0", "uint16_bbc")
-uint16_fi = DataType("uint16", "float16_int16_t0", "uint16_fic")
-uint16_bi = DataType("uint16", "bfloat16_int16_t0", "uint16_bic")
-
-uint8_ffc = DataType("uint8", "float16_float16_t0", "uint8_ffc")
-uint8_bbc = DataType("uint8", "bfloat16_bfloat16_t0", "uint8_bbc")
-uint8_fic = DataType("uint8", "float16_int8_t0", "uint8_fic")
-uint8_bic = DataType("uint8", "bfloat16_int8_t0", "uint8_bic")
-
-int16_fc = DataType("int8", "float16_t0", "int16_fc")
-int16_bc = DataType("int8", "bfloat16_t0", "int16_bc")
-int16_ec = DataType("int8", "e8m0_t0", "int16_ec")
-
+int8_Fc = DataType("int8", "float32_t0", "int8_Fc")
 int8_fc = DataType("int8", "float16_t0", "int8_fc")
 int8_bc = DataType("int8", "bfloat16_t0", "int8_bc")
+int8_nc = DataType("int8", "e4m3_t0", "int8_nc")
 int8_ec = DataType("int8", "e8m0_t0", "int8_ec")
 
-e5m2_ec = DataType("e5m2", "e8m0_t0", "e5m2_ec")
-e4m3_ec = DataType("e4m3fn", "e8m0_t0", "e4m3_ec")
+int4_Fc = DataType("int4", "float32_t0", "int4_Fc")
+int4_fc = DataType("int4", "float16_t0", "int4_fc")
+int4_bc = DataType("int4", "bfloat16_t0", "int4_bc")
+int4_nc = DataType("int4", "e4m3_t0", "int4_nc")
+int4_ec = DataType("int4", "e8m0_t0", "int4_ec")
+
+bf8_F = DataType("e5m2", "float32_t0", "bf8_F")
+bf8_f = DataType("e5m2", "float16_t0", "bf8_f")
+bf8_b = DataType("e5m2", "bfloat16_t0", "bf8_b")
+bf8_n = DataType("e5m2", "e4m3_t0", "bf8_n")
+bf8_e = DataType("e5m2", "e8m0_t0", "bf8_e")
+bf8n_F = DataType("e5m2fnuz", "float32_t0", "bf8n_F")
+bf8n_f = DataType("e5m2fnuz", "float16_t0", "bf8n_f")
+bf8n_b = DataType("e5m2fnuz", "bfloat16_t0", "bf8n_b")
+bf8n_n = DataType("e5m2fnuz", "e4m3_t0", "bf8n_n")
+bf8n_e = DataType("e5m2fnuz", "e8m0_t0", "bf8n_e")
+
+fp8_Fc = DataType("e4m3fn", "float32_t0", "fp8_Fc")
+fp8_fc = DataType("e4m3fn", "float16_t0", "fp8_fc")
+fp8_bc = DataType("e4m3fn", "bfloat16_t0", "fp8_bc")
+fp8_nc = DataType("e4m3fn", "e4m3_t0", "fp8_nc")
+fp8_ec = DataType("e4m3fn", "e8m0_t0", "fp8_ec")
+fp8n_Fc = DataType("e4m3fnuz", "float32_t0", "fp8n_Fc")
+fp8n_fc = DataType("e4m3fnuz", "float16_t0", "fp8n_fc")
+fp8n_bc = DataType("e4m3fnuz", "bfloat16_t0", "fp8n_bc")
+fp8n_nc = DataType("e4m3fnuz", "e4m3_t0", "fp8n_nc")
+fp8n_ec = DataType("e4m3fnuz", "e8m0_t0", "fp8n_ec")
 
 ### tile scaled
 
@@ -156,6 +202,7 @@ mx9 = DataType("cb81ie_int9", "e8m0_t16s2", "mx9")
 mx6 = DataType("cb51ie_int7", "e8m0_t16s2", "mx6")
 mx4 = DataType("cb31ie_int5", "e8m0_t16s2", "mx4")
 bfp16 = DataType("int8", "e8m0_t8", "bfp16")
+bfp16t16 = DataType("int8", "e8m0_16", "bfp16t16")
 
 ### square tile scaled
 
@@ -197,6 +244,33 @@ def datatype(nspec: str | NumberSpec = None, sspec: str | ScaleSpec = None, name
     return DataType(nspec, sspec, name)
 
 
+@overload
+def configuration(method: int) -> LPConfig: ...
+
+
+@overload
+def configuration(method: Path) -> LPConfig: ...
+
+
+@overload
+def configuration(method: str) -> LPConfig: ...
+
+
+@overload
+def configuration(**method) -> LPConfig: ...
+
+
+def configuration(method) -> LPConfig:
+    """Create an LP configuration with a code, json path, shortcut, or params."""
+    if isinstance(method, int):
+        return LPConfig(code=method)
+    if isinstance(method, Path | str):
+        return LPConfig(json_path=method)
+    if isinstance(method, Shortcut):
+        return LPConfig(shortcut=method)
+    return LPConfig(**method)
+
+
 def cast(
     tensor: torch.Tensor,
     dtype: DataType | torch.dtype,
@@ -216,7 +290,9 @@ def cast(
     Modes.set_modes(roundmode, scalemode, computemode, castmode)
     if not isinstance(tensor, torch.Tensor) or not isinstance(dtype, DataType | torch.dtype):
         raise ValueError("tcast.cast: tensor and dtype must be torch.Tensor and DataType or torch.dtype")
-    tensor = Tensor(tensor, DataType(str(dtype)) if isinstance(dtype, torch.dtype) else dtype, transpose_scale=transpose_scale)
+    tensor = Tensor(
+        tensor, DataType(str(dtype)) if isinstance(dtype, torch.dtype) else dtype, transpose_scale=transpose_scale, precast=True
+    )
     out_dtype = dtype if isinstance(dtype, torch.dtype) else tensor.original_dtype
     if Modes.compute == ComputeMode.TRITON and TritonCast.supports(tensor):
         tensor = TritonCast.cast(tensor.precast())
@@ -231,3 +307,58 @@ def cast(
         tensor = torch_tensor
     Modes.restore_modes()
     return tensor
+
+
+def upcast(
+    tensor: Tensor,
+    torch_dtype: torch.dtype = None,
+    roundmode: RoundMode | str = None,
+    scalemode: ScaleMode | str = None,
+    computemode: ComputeMode | str = None,
+    castmode: CastMode | str = None,
+    transpose_scale: bool = False,
+) -> torch.Tensor:
+    """Upcast tcast.Tensor to a torch dtype."""
+    Modes.set_modes(roundmode, scalemode, computemode, castmode)
+    if not isinstance(tensor, Tensor):
+        raise ValueError("tcast.upcast: tensor must be a tcast.Tensor")
+    if torch_dtype is None:
+        torch_dtype = tensor.original_dtype
+    if not isinstance(torch_dtype, torch.dtype):
+        raise ValueError("tcast.upcast: torch_dtype must be a torch.dtype")
+    tensor = tensor.output.to(torch_dtype)
+    # ...
+    Modes.restore_modes()
+    raise NotImplementedError("tcast.upcast: upcast not yet implemented in Triton or Torch")
+    # case 1: cast tensor is unscaled
+    # if tensor.is_unscaled:
+    #     if
+    #     tensor = tensor.output.to(dtype)
+    # # case 2: tensor is unscaled
+    # if tensor.dtype.is_unscaled
+    # # step 1 is to cast the scaled tensor to the torch.dtype
+
+
+# def vcast(
+#     tensor: torch.Tensor,
+#     dtype: DataType | torch.dtype,
+#     roundmode: RoundMode | str = None,
+#     scalemode: ScaleMode | str = None,
+#     computemode: ComputeMode | str = None,
+#     castmode: CastMode | str = None,
+#     transpose_scale: bool = False,
+# ) -> torch.Tensor:
+#     """Virtual cast of torch.Tensor to dtype, stored in tcast.Tensor."""
+#     Modes.set_modes(roundmode, scalemode, computemode, castmode)
+#     if Modes.cast != CastMode.VIRTUAL:
+#         raise ValueError("tcast.vcast: castmode must be 'virtual'")
+#     if Modes.compute == ComputeMode.TORCH:
+#         return cast(tensor, dtype, transpose_scale=transpose_scale)
+#     elif not TritonCast.supports(tensor, dtype, transpose_scale):
+#         raise ValueError("tcast.vcast: triton mode does not support this conversion")
+#     tensor = Tensor(tensor, dtype, transpose_scale=transpose_scale, precast=True)
+#     tensor = TritonCast.vcast(tensor, dtype, transpose_scale=transpose_scale)
+
+#     assert isinstance(tensor, torch.Tensor)
+#     Modes.restore_modes()
+#     return tensor

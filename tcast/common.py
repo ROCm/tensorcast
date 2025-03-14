@@ -77,7 +77,7 @@ class ScaleData(NamedTuple):
 
     scale: torch.Tensor
     zero: torch.Tensor
-    tensor: torch.Tensor
+    tenscale: torch.Tensor
     meta: torch.Tensor
     mask: torch.Tensor
 
@@ -125,7 +125,7 @@ MX2NUMSPEC = dict(
     mxfp8e4='DataType("e4m3fn", "e8m0_t32", "mxfp8e4")',
     mxfp6e3='DataType("e3m2fnuz", "e8m0_t32", "mxfp6e3")',
     mxfp6e2='DataType("e2m3fnuz", "e8m0_t32", "mxfp6e2")',
-    mxfp4e2='DataType("e2m1fnuz", "e8m0_t32", "mxfp6e2")',
+    mxfp4e2='DataType("e2m1fnuz", "e8m0_t32", "mxfp4e2")',
     mxint8='DataType("int8", "e8m0_t32", "mxint8")',
     mxint4='DataType("int4", "e8m0_t32", "mxint4")',
     bfp16='DataType("int8", "e8m0_t8", "bfp16")',
@@ -159,7 +159,7 @@ class Modes:
     def set_modes(
         cls, roundmode: str | RoundMode, scalemode: str | ScaleMode, computemode: str | ComputeMode, castmode: str | CastMode
     ) -> dict:
-        """Check and set the rounding and scaling modes.  If compmode requires extension, load it."""
+        """Check and set the rounding and other modes."""
         cls.saved_round, cls.saved_scale, cls.saved_compute, cls.saved_cast = cls.round, cls.scale, cls.compute, cls.cast
         roundmode, scalemode, computemode, castmode = (
             get_enum(RoundMode, roundmode),

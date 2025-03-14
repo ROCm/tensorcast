@@ -75,6 +75,9 @@ class DataType:
             if self.nspec.is_int and not (self.sspec.scale.is_exponent or self.sspec.scale.is_float):
                 raise ValueError(f"{prefix} int data requires either a float or exponent scale.")
 
+    def __eq__(self, other):
+        return self.name == other.name
+
     @property
     def name(self):
         if self._name:
@@ -85,18 +88,16 @@ class DataType:
         """Given scaling metadata and codebook metadata, how many bits per value?  Does not include codebook tables themselves."""
         if self.is_unscaled or (tensor is None and (self.is_tensor or self.is_channel)):
             return float(self.nspec.bits)
-        if self.is_2d:
-            raise NotImplementedError("2D scaling not yet implemented.")
+        tsize = self.sspec.tile0 * self.sspec.tile1 if self.is_tile else 1
+        ssize = self.sspec.subtile0 * self.sspec.subtile1 if self.is_subtile else tsize
         scale_bits = float(self.sspec.scale.bits + (self.sspec.zero.bits if self.sspec.zero else 0))
         if self.is_tensor:
             return (scale_bits + self.nspec.bits * tensor.numel()) / tensor.numel()
         if self.is_channel:
-            assert self.sspec.tile == 0
+            assert self.is_tile
             csize = tensor.size(self.sspec.dim)
             return (scale_bits * tensor.numel() / csize + self.nspec.bits * tensor.numel()) / tensor.numel()
         assert self.is_tile
-        tsize = self.sspec.tile
-        ssize = self.sspec.subtile if self.is_subtile else tsize
         meta_bits = (self.sspec.offset if self.is_offset else 0) + (
             self.nspec.meta_bits if self.is_codebook else 0
         ) * tsize // ssize

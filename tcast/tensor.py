@@ -40,7 +40,7 @@ class ShapeInfo(NamedTuple):
 class Tensor:
     """A quantized and compressed tensor with scaling and descriptive information."""
 
-    def __init__(self, tensor: torch.Tensor, dtype: DataType, transpose_scale: bool = False):
+    def __init__(self, tensor: torch.Tensor, dtype: DataType, transpose_scale: bool = False, precast: bool = True):
         self.dtype, self.input = dtype, tensor
         self.original_shape, self.original_device, self.original_dtype = tensor.size(), tensor.device, tensor.dtype
         self.output = self.tenscale = self.scale = self.zero = self.meta = self.mask = None
@@ -48,6 +48,8 @@ class Tensor:
         self.is_compressed = False
         self.shape_transforms = []
         self.shape_info = {}
+        if precast:
+            self.precast()
 
     # @property
     # def tensor(self) -> torch.Tensor:

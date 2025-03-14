@@ -2,6 +2,8 @@
 
 # Examples
 
+> TODO(ericd) *this needs editing*
+
 A collection of examples on how to use Tensorcast.
 
 ## Manual method

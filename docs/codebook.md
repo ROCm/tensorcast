@@ -49,11 +49,12 @@ The generic codebook description is of the form:
     cb<index_bits><metadata_bits>[<desc>]_<cspec>[_<label>]
 ```
 
-`index_bits` is a single digit that is the bit width of the values that are indices into a specific mapping lookup table.
-`metadata_bits` is a single digit that is the number of bits of metadata that select the mapping lookup table. `desc` is a
-code specific to implicit codebook mapping creation (described [below](#implicit-codebook-description-encoding))
-and is not used for generic codebooks.  `cspec` is the `NumberSpec` code for the compute type contained in the
-codebook lookup tables. `label` is the optional alternative codebook name.
+`index_bits` is a single digit that is the bit width of the values that are indices into a specific
+mapping lookup table. `metadata_bits` is a single digit that is the number of bits of metadata that select the
+mapping lookup table. `desc` is a code specific to implicit codebook mapping creation (described
+[below](#implicit-codebook-description-encoding)) and is not used for generic codebooks.  `cspec` is the
+`NumberSpec` code for the compute type contained in the codebook lookup tables. `label` is the optional
+alternative codebook name.
 
 The codebook dimensions, then, are 2<sup>metadata_bits</sup> and 2<sup>index_bits</sup>, and the codebook entries
 are the size of the compute values (`NumberSpec(cspec).bits`).
@@ -109,7 +110,8 @@ There are four types of patterns used:
 The codebook mappings are variations of these patterns.  These mappings are specified through one or more clauses
 beginning with "f", "i", "p", or "s", and containing modifiers with further information.
 
->Note: syntactically legal encodings will raise an exception if any resulting mappings cannot be represented in the compute type.
+>Note: syntactically legal encodings will raise an exception if any resulting mappings cannot be represented
+in the compute type.
 
 ### F pattern (floating point)
 
@@ -141,7 +143,8 @@ pure e2m1fnuz).  Otherwise, the offset is in [0, 9], and each index is decrement
 
 >Note that adjacent fp4 values will not have the same ratio (75% or 50%) after being shifted by index.
 
-The simple syntax for the modifiers of the "f" clause is `f[<offsets>]`, where `offsets` is optional, and when present is
+The simple syntax for the modifiers of the "f" clause is `f[<offsets>]`, where `offsets` is optional, and when
+present is
 one or more digits indicating the decrement from the top of the compute number line.  If `offsets` is omitted, the
 default for that fp3/fp4/fp5 is used, and one mapping is generated, otherwise the number of offsets is the number of
 mappings generated.
@@ -208,7 +211,8 @@ for more dynamic range.
 
 ## Implicit Codebook Examples
 
->Some examples in this section use compute types that are smaller than what might be implemented for a given platform. This is to minimize the diagram size and complexity.
+>*Some examples in this section use compute types that are smaller than what might be implemented for a
+given platform. This is to minimize the diagram size and complexity.*
 
 ### FP4 and INT4 Combined Pattern
 
@@ -221,16 +225,17 @@ mapping roughly 70% of the time for weights.
     <img src="./CB41FI_light.png#gh-light-mode-only", alt="CB41FI", width=200>
 </div>
 
-This example would be encoded as `cb41fi_e2m2fnuz`, with "f" indicating a standard fp4 (e2m1) pattern, and "i" indicating a
-standard int4 pattern.
+This example would be encoded as `cb41fi_e2m2fnuz`, with "f" indicating a standard fp4 (e2m1) pattern, and
+"i" indicating a standard int4 pattern.
 
 The "4" in the decription indicates the number of bits in each encoded value.  This tells the codebook that the pattern
-for "f" is fp4 (as opposed to fp6).  Currently, TensorCast will infer exponent width for the "f" code as 2 bits, so that
-fp4 is e2m1 and fp5 would be e2m2.
+for "f" is fp4 (as opposed to fp6).  Currently, TensorCast will infer exponent width for the "f" code as 2 bits,
+so that fp4 is e2m1 and fp5 would be e2m2.
 
 ### Positional Modifiers for FP4 and INT4
 
-The "f" or "i" patterns can have a modifier that specifies the number of positions a pattern is shifted down the compute
+The "f" or "i" patterns can have a modifier that specifies the number of positions a pattern is shifted down
+the compute
 type number line from the top of the number line.  One or more positions can be specified.  For example, if we want
 an fp4 pattern that is shifted 1, 3, 4, and 6 positions from the top of e2m3fnuz, we encode it as `cb42f1346_e2m3fnuz`.
 
@@ -279,7 +284,7 @@ of prime bits in the two terms.
 
 The specifier for MX6 using fp6 compute would be `cb51ie_e2m3_mx6` or `cb51ie01_e2m3_mx6`.
 
-In implicit codebooks, the equivalent is to divide the values in the pattern by 2.
+In implicit codebooks, the  equivalent is to divide the values in the pattern by 2.
 
 <div align="center">
     <img src="./CB51IE_dark.png#gh-dark-mode-only", alt="CB51IE", width=200>
@@ -298,4 +303,6 @@ compute fp6e2: `cb41p1p2_e2m3fnuz`:
 
 ---
 
+[Documentation](./README.md)
+</br>
 [TensorCast Home](../README.md)

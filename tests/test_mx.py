@@ -53,6 +53,12 @@ def test_mx_unscaled_datatypes(shape: tuple[int], dtype: str | tcast.DataType, r
     tensor_tcast = tcast.cast(tensor, dtype=dtype, castmode=castmode, roundmode=roundmode, computemode=computemode)
     if isinstance(tensor, tcast.Tensor):
         tensor_tcast = tensor_tcast.output
+    assert (
+        type(tensor_mx) is type(tensor_tcast)
+    ), f"MX ({type(tensor_mx)}) and TensorCast ({type(tensor_tcast)}) datatypes do not match"
+    assert (
+        tensor_mx.dtype == tensor_tcast.dtype
+    ), f"MX ({str(tensor_mx.dtype)}) and TensorCast ({str(tensor_tcast.dtype)}) datatypes do not match"
     torch.testing.assert_close(tensor_mx, tensor_tcast)
 
 

@@ -9,6 +9,6 @@ import tcast
 logger = tcast.get_logger("tcast_unittest")
 
 
-def test_config(shape: tuple[int], dtype: str | tcast.DataType, computemode: str):
-    errors = tcast.config.test_lpconfig(logger)
+def test_config():
+    errors = tcast.config.test_config(logger)
     assert errors == 0, f"{errors} found in LP configuration"

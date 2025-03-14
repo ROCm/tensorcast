@@ -27,10 +27,10 @@ def interleave_bfp16(mantissas, exponents, block):
 
 
 if __name__ == "__main__":
-    block = 16
+    blockmap = {8: tcast.bfp16, 16: tcast.bfp16b16}
+    block, blocktype = 16, blockmap[16]
     tensor = (torch.randint(-2048, 2048, (1, block)) * torch.randn(1, block)).float()
-    tcast_dt = tcast.datatype("int8", f"e8m0_t{block}")
-    tensor_tcast_d = tcast.cast(tensor, dtype=tcast_dt, roundmode="even")
+    tensor_tcast_d = tcast.cast(tensor, dtype=blocktype, roundmode="even")
     tensor_tcast_m = tensor_tcast_d["x_export"].view(-1)
     tensor_tcast_e = tensor_tcast_d["meta_export"].view(-1)
     i8_array = interleave_bfp16(tensor_tcast_m, tensor_tcast_e, block)
