@@ -171,6 +171,12 @@ fp8n_ec = DataType("e4m3fnuz", "e8m0_t0", "fp8n_ec")
 
 ### tile scaled
 
+# FP8 with square tiles
+
+fp8nF32s = DataType("e4m3fnuz", "float32_t32_t32", "fp8nF32s")
+fp8nf32s = DataType("e4m3fnuz", "float16_t32_t32", "fp8nf32s")
+bf8nbt32s = DataType("e5m2fnuz", "bfloat16_t16_t16", "bf8nbt32s")
+
 # OCP MXFP and MXINT, tile size 32
 
 mxbf8 = mxfp8e5 = DataType("e5m2", "e8m0_t32", "mxfp8e5")
@@ -269,6 +275,16 @@ def configuration(method) -> LPConfig:
     if isinstance(method, Shortcut):
         return LPConfig(shortcut=method)
     return LPConfig(**method)
+
+
+def randomize_imatrix(cls, imatrix: torch.Tensor) -> torch.Tensor:
+    """Randomize a Walsh-Hadamard matrix while preserving orthogonality."""
+    return LPConfig.randomize_imatrix(imatrix)
+
+
+def get_imatrix(size: int, dtype: torch.dtype = torch.float32, walsh: bool = True, randomize: bool = True) -> torch.Tensor:
+    """Create an identity matrix with optionally randomized Walsh-Hadamard rows."""
+    return LPConfig.get_imatrix(size, dtype, walsh, randomize)
 
 
 def cast(
