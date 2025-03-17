@@ -203,17 +203,19 @@ class TritonCast:
     """Triton: accelerated methods for casting."""
 
     @staticmethod
-    def supports(tensor: Tensor, prescaled: bool = False, premapped: bool = False, magnitude: bool = False) -> bool:
+    def supports(tensor: Tensor) -> bool:
         """Check if the cast operation is supported by in the triton code."""
-        return (
-            is_triton_available()
-            and Modes.cast != CastMode.COMPRESS
-            and not magnitude
-            and not prescaled
-            and not premapped
-            and tensor.dtype.is_tile
-            and tensor.dtype.nspec.is_float
-        )
+        available = is_triton_available()
+        cast_not_compress = Modes.cast != CastMode.COMPRESS
+        float_spec = tensor.dtype.nspec.is_float
+        supports_all = available and cast_not_compress and float_spec
+        return supports_all
+        # assert supports_all is not False, f"{available}, {cast_not_compress}, {float_spec}"
+        # return (
+        #     is_triton_available()
+        #     and Modes.cast != CastMode.COMPRESS
+        #     and tensor.dtype.nspec.is_float
+        # )
 
     @staticmethod
     def cast(tensor: Tensor, transpose_scale: bool = False) -> bool:
@@ -224,9 +226,6 @@ class TritonCast:
                 return (t, t.size(0), t.size(1), t.stride(0), t.stride(1))
             else:
                 return (None, 0, 0, 0, 0)
-
-        if not TritonCast.supports(tensor):
-            return False
 
         nspec, sspec = tensor.dtype.nspec, tensor.dtype.sspec
         t = tensor.input
