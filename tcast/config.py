@@ -42,6 +42,7 @@ logger = get_logger("tcast")
 
 EPS = torch.finfo(torch.float32).smallest_normal
 
+
 def _get_shortcuts():
     """Return the LP shortcuts, which will be accessed through the SHORTCUT environment variable."""
     lp_shortcuts = {}
@@ -90,16 +91,7 @@ class _LPCode:
     """Represents encoding/decoding of LP Config codes."""
 
     SCALE_TYPES = [None, "float32", "float16", "bfloat16", "e8m0", "e5m3"]
-    CODED_LP_TYPES = [
-        None,
-        "float8_e5m2",
-        "float8_e5m2fnuz",
-        "float8_e4m3fn",
-        "float8_e4m3fnuz",
-        "mxfp6e3",
-        "mxfp6e2",
-        "mxfp4e2",
-    ]
+    CODED_LP_TYPES = [None, "float8_e5m2", "float8_e5m2fnuz", "float8_e4m3fn", "float8_e4m3fnuz", "mxfp6e3", "mxfp6e2", "mxfp4e2"]
     CODE_POSITIONS = {
         "block_size": (LP_SIZE_POS, LP_SIZE_MASK),  # 2, 4, 8, 16, 32, 64, 128, 256 are valid block sizes
         "block_square": (LP_SQUARE_POS, LP_SQUARE_MASK),  # indicates that the block is square
@@ -149,7 +141,7 @@ class _LPCode:
                     self.code |= (value[0] & self.CODE_POSITIONS["block_axis0"][1]) << self.CODE_POSITIONS["block_axis0"][0]
                     self.code |= (value[1] & self.CODE_POSITIONS["block_axis0"][1]) << self.CODE_POSITIONS["block_axis1"][0]
                 elif key.startswith("icp"):
-                    self.code |= int(value)<< self.CODE_POSITIONS[key][0]
+                    self.code |= int(value) << self.CODE_POSITIONS[key][0]
                 elif key.endswith("dtype"):
                     type_table = self.SCALE_TYPES if key == "scale_dtype" else self.CODED_LP_TYPES
                     value = value.name if isinstance(value, DataType) else value
@@ -237,15 +229,17 @@ class LPConfig:
     # fmt: on
 
     def __repr__(self) -> str:
-        return "\n".join([
-            "LPConfig(",
-            f"  code=0x{self.code:08x}, json_path={self.json_path}, shortcut={self.shortcut}, ",
-            f"  block_size={self.block_size}, block_axes={self.block_axes}, square={self.square_block}, ",
-            f"  scale_dtype={self.scale_dtype}, q_dtype={self.q_dtype}, k_dtype={self.k_dtype}, ",
-            f"  v_dtype={self.v_dtype}, p_dtype={self.p_dtype}, do_dtype={self.do_dtype}, ds_dtype={self.ds_dtype}, ",
-            f"  icp_qk={self.icp_qk}, icp_pv={self.icp_pv}, icp_fp32={self.icp_fp32}",
-            ")"
-        ])
+        return "\n".join(
+            [
+                "LPConfig(",
+                f"  code=0x{self.code:08x}, json_path={self.json_path}, shortcut={self.shortcut}, ",
+                f"  block_size={self.block_size}, block_axes={self.block_axes}, square={self.square_block}, ",
+                f"  scale_dtype={self.scale_dtype}, q_dtype={self.q_dtype}, k_dtype={self.k_dtype}, ",
+                f"  v_dtype={self.v_dtype}, p_dtype={self.p_dtype}, do_dtype={self.do_dtype}, ds_dtype={self.ds_dtype}, ",
+                f"  icp_qk={self.icp_qk}, icp_pv={self.icp_pv}, icp_fp32={self.icp_fp32}",
+                ")",
+            ]
+        )
 
     def __str__(self) -> str:
         return repr(self)
@@ -428,71 +422,107 @@ class LPConfig:
         reorder = torch.argsort(order)
         torch.testing.assert_close(order, reorder)
 
+    @classmethod
+    def check_icp(
+        cls,
+        logger: logging.Logger,
+        torch_dtype,
+        size,
+        odim,
+        walsh,
+        randomize,
+        float32,
+        outlier_scale,
+        outlier_range,
+        outlier_prob,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Check effects of transforms."""
+        M: torch.Tensor = LPConfig.get_imatrix(size, torch_dtype, walsh=walsh, randomize=randomize)
+        A = torch.randn(size * odim, size, dtype=torch_dtype, device=M.device)
+        B = torch.randn(size * odim, size, dtype=torch_dtype, device=M.device)
+        if outlier_prob > 0.0:
+            A = make_outliers(A, scale=outlier_scale, range=outlier_range, prob=outlier_prob)
+            B = make_outliers(B, scale=outlier_scale, range=outlier_range, prob=outlier_prob)
+        if float32:
+            M, A, B = M.float(), A.float(), B.float()
+        A_kurtosis = kurtosis(A)
+        B_kurtosis = kurtosis(B)
+        AB_ref = (A @ B.t()).to(torch_dtype)
+        AB_ref_norm = torch.norm(AB_ref).item()
+        AM = (A @ M).to(torch_dtype)
+        BM = (B @ M).to(torch_dtype)
+        AM_kurtosis = kurtosis(AM)
+        BM_kurtosis = kurtosis(BM)
+        AB_icp = (AM @ BM.t()).to(torch_dtype)
+        AB_icp_norm = torch.norm(AB_icp).item()
+        diff_norm = torch.norm(AB_ref - AB_icp).item() / AB_ref_norm
+        args = f"{size*odim}x{size} {str(torch_dtype)[6:]} "
+        args += "RWH" if walsh and randomize else "WH" if walsh else "H"
+        args += " F32MM" if float32 else ""
+        if outlier_prob > 0.0:
+            args += f" O{outlier_scale}R{outlier_range}P{outlier_prob}"
+        logger.info(f"test_icp({args}):")
+        logger.info(f"\tnorms:    diff_norm={diff_norm} ref_norm={AB_ref_norm} icp_norm={AB_icp_norm}")
+        logger.info(f"\tkurtosis: A={A_kurtosis} AM={AM_kurtosis} B={B_kurtosis} BM={BM_kurtosis}")
+        return AB_ref, AB_icp
 
-def test_config(logger: logging.Logger) -> int:
-    """Test the LPConfig class."""
-    logger.info(f"LPConfig has {len(LP_SHORTCUTS)} shortcuts.")
-    for shortcut, attrs in LP_SHORTCUTS.items():
-        tmp_cfg = LPConfig(**attrs)
-        logger.info(f"Shortcut {shortcut} has code {tmp_cfg.xcode}")
-    # clear out the LP_ env vars
-    for key in os.environ.copy():
-        if key.startswith("LP_"):
-            os.environ.pop(key)
-    # 1) pass a code to the constructor
-    cfg_param_code = LPConfig(code=0xa929204c) # 0xa929214c
-    logger.warning(f"cfg_param_code.code = {hex(cfg_param_code.code)}")
-    # 2) pass a json file to the constructor
-    json_path = Path(__file__).parent / "tests" / "config_attrs.json"
-    cfg_param_json = LPConfig(json_path=json_path)
-    logger.info(f"cfg_param_json.code = {hex(cfg_param_json.code)}")
-    # 3) pass a shortcut to the constructor
-    cfg_param_shortcut = LPConfig(shortcut="split_match_e4m3fnuz_e5m2fnuz_icpqk32_32x32")
-    logger.info(f"cfg_param_shortcut.code = {hex(cfg_param_shortcut.code)}")
-    # 4) pass everythomg to the constructor except for code, json_path, shortcut
-    cfg_param_attrs = LPConfig(
-        block_size=(32, 32),
-        block_axes=(0, 1),
-        scale_dtype=None,
-        q_dtype="float8_e4m3fnuz",
-        k_dtype="float8_e4m3fnuz",
-        v_dtype="float8_e4m3fnuz",
-        p_dtype="float8_e5m2fnuz",
-        ds_dtype="float8_e5m2fnuz",
-        do_dtype="float8_e5m2fnuz",
-        icp_qk=True,
-        icp_pv=False,
-        icp_fp32=True,
-    )
-    # 5) set a code env var and pass no parameters
-    os.environ["LP_CODE"] = "0xa929204c"
-    cfg_env_code = LPConfig()
-    logger.info(f"cfg_env_code.code = {hex(cfg_env_code.code)}")
-    os.environ.pop("LP_CODE")
-    # 6) set a json path env var and pass no parameters
-    json_path = Path(__file__).parent / "tests" / "config_attrs.json"
-    assert json_path.exists(), f"No test json file {str(json_path)} exists."
-    os.environ["LP_JSON_PATH"] = str(json_path)
-    cfg_env_json = LPConfig()
-    logger.info(f"cfg_env_json.code = {hex(cfg_env_json.code)}")
-    os.environ.pop("LP_JSON_PATH")
-    # 7) set a shortcut env var and pass no parameters
-    os.environ["LP_SHORTCUT"] = "split_match_e4m3fnuz_e5m2fnuz_icpqk32_32x32"
-    cfg_env_shortcut = LPConfig()
-    logger.info(f"cfg_env_shortcut.code = {hex(cfg_env_shortcut.code)}")
-    os.environ.pop("LP_SHORTCUT")
-    # 8) pass nothing to the constructor, but set attributes in the environment
-    import subprocess
+    @classmethod
+    def _method_param_code(cls):
+        return LPConfig(code=0xA929204C)
 
-    bash_path = Path(__file__).parent / "tests" / "config_attrs.sh"
-    assert bash_path.exists(), f"No test bash file {str(bash_path)} exists."
-    command = f"source {str(bash_path)} && env"
-    process = subprocess.Popen(command, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = process.communicate()
-    if process.returncode != 0:
-        logger.error(f"Error executing script: {stderr.decode()}")
-        cfg_env_attrs = None
-    else:
+    @classmethod
+    def _method_param_json(cls):
+        json_path = Path(__file__).parent / "tests" / "config_attrs.json"
+        return LPConfig(json_path=json_path)
+
+    @classmethod
+    def _method_param_shortcut(cls):
+        return LPConfig(shortcut="split_match_e4m3fnuz_e5m2fnuz_icpqk32_32x32")
+
+    @classmethod
+    def _method_param_attrs(cls):
+        return LPConfig(
+            block_size=(32, 32),
+            block_axes=(0, 1),
+            scale_dtype=None,
+            q_dtype="float8_e4m3fnuz",
+            k_dtype="float8_e4m3fnuz",
+            v_dtype="float8_e4m3fnuz",
+            p_dtype="float8_e5m2fnuz",
+            ds_dtype="float8_e5m2fnuz",
+            do_dtype="float8_e5m2fnuz",
+            icp_qk=True,
+            icp_pv=False,
+            icp_fp32=True,
+        )
+
+    @classmethod
+    def _method_env_code(cls):
+        os.environ["LP_CODE"] = "0xa929204c"
+        return LPConfig()
+
+    @classmethod
+    def _method_env_json(cls):
+        json_path = Path(__file__).parent / "tests" / "config_attrs.json"
+        os.environ["LP_JSON_PATH"] = str(json_path)
+        return LPConfig()
+
+    @classmethod
+    def _method_env_shortcut(cls):
+        os.environ["LP_SHORTCUT"] = "split_match_e4m3fnuz_e5m2fnuz_icpqk32_32x32"
+        return LPConfig()
+
+    @classmethod
+    def _method_env_attrs(cls):
+        import subprocess
+
+        bash_path = Path(__file__).parent / "tests" / "config_attrs.sh"
+        command = f"source {str(bash_path)} && env"
+        process = subprocess.Popen(command, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
+        if process.returncode != 0:
+            logger.error(f"Error executing script: {stderr.decode()}")
+            return None
         env_vars = {}
         for line in stdout.decode().splitlines():
             if line.startswith("LP_") and "=" in line:
@@ -500,62 +530,51 @@ def test_config(logger: logging.Logger) -> int:
                 env_vars[key] = value
         for key, value in env_vars.items():
             os.environ[key] = value
-        cfg_env_attrs = LPConfig()
-        logger.info(f"cfg_env_attrs.code = {hex(cfg_env_attrs.code)}")
+        return LPConfig()
 
-    errors = 0
-    config_pairs = (
-        ("cfg_param_code", cfg_param_code),  # method 1
-        ("cfg_param_json", cfg_param_json),  # method 2
-        ("cfg_param_shortcut", cfg_param_shortcut),  # method 3
-        ("cfg_param_attrs", cfg_param_attrs),  # method 4
-        ("cfg_env_code", cfg_env_code),  # method 5
-        ("cfg_env_json", cfg_env_json),  # method 6
-        ("cfg_env_shortcut", cfg_env_shortcut),  # method 7
-        ("cfg_env_attrs", cfg_env_attrs),  # method 8
-    )
-    for lhs_name, lhs in config_pairs:
-        for rhs_name, rhs in config_pairs:
-            if lhs is not None and rhs is not None and lhs_name != rhs_name:
-                if lhs != rhs:
-                    for attr in lhs.__dict__:
-                        lhs_attr, rhs_attr = getattr(lhs, attr), getattr(rhs, attr)
-                        if lhs_attr != rhs_attr:
-                            logger.error(f"{lhs_name}.{attr} ({lhs_attr}) != {rhs_name}.{attr} ({rhs_attr})")
-                    errors += 1
-    logger.info(f"Compared {len(config_pairs)} configurations with {errors} errors.")
-    return errors
+    @classmethod
+    def methods(cls):
+        """Return the methods for configuring the LPConfig class."""
+        return [
+            LPConfig._method_param_code,
+            LPConfig._method_param_json,
+            LPConfig._method_param_shortcut,
+            LPConfig._method_param_attrs,
+            LPConfig._method_env_code,
+            LPConfig._method_env_json,
+            LPConfig._method_env_shortcut,
+            LPConfig._method_env_attrs,
+        ]
 
+    @classmethod
+    def check_config(cls, logger, index1: int, index2: int, print_shortcuts: bool = False) -> bool:
+        """Test the LPConfig class for a pair of methods for configuring the class."""
 
-def test_icp(
-    logger: logging.Logger, torch_dtype, size, odim, walsh, randomize, float32, outlier_scale, outlier_range, outlier_prob
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Check effects of transforms."""
-    M: torch.Tensor = LPConfig.get_imatrix(size, torch_dtype, walsh=walsh, randomize=randomize)
-    A = torch.randn(size * odim, size, dtype=torch_dtype, device=M.device)
-    B = torch.randn(size * odim, size, dtype=torch_dtype, device=M.device)
-    if outlier_prob > 0.0:
-        A = make_outliers(A, scale=outlier_scale, range=outlier_range, prob=outlier_prob)
-        B = make_outliers(B, scale=outlier_scale, range=outlier_range, prob=outlier_prob)
-    if float32:
-        M, A, B = M.float(), A.float(), B.float()
-    A_kurtosis = kurtosis(A)
-    B_kurtosis = kurtosis(B)
-    AB_ref = (A @ B.t()).to(torch_dtype)
-    AB_ref_norm = torch.norm(AB_ref).item()
-    AM = (A @ M).to(torch_dtype)
-    BM = (B @ M).to(torch_dtype)
-    AM_kurtosis = kurtosis(AM)
-    BM_kurtosis = kurtosis(BM)
-    AB_icp = (AM @ BM.t()).to(torch_dtype)
-    AB_icp_norm = torch.norm(AB_icp).item()
-    diff_norm = torch.norm(AB_ref - AB_icp).item() / AB_ref_norm
-    args = f"{size*odim}x{size} {str(torch_dtype)[6:]} "
-    args += "RWH" if walsh and randomize else "WH" if walsh else "H"
-    args += " F32MM" if float32 else ""
-    if outlier_prob > 0.0:
-        args += f" O{outlier_scale}R{outlier_range}P{outlier_prob}"
-    logger.info(f"test_icp({args}):")
-    logger.info(f"\tnorms:    diff_norm={diff_norm} ref_norm={AB_ref_norm} icp_norm={AB_icp_norm}")
-    logger.info(f"\tkurtosis: A={A_kurtosis} AM={AM_kurtosis} B={B_kurtosis} BM={BM_kurtosis}")
-    return AB_ref, AB_icp
+        def _clear_env():
+            for key in os.environ.copy():
+                if key.startswith("LP_"):
+                    os.environ.pop(key)
+
+        # check for valid indices
+        all_methods = cls.methods()
+        num_methods = len(all_methods)
+        if index1 == index2 or index1 < 0 or index2 < 0 or index1 >= num_methods or index2 >= num_methods:
+            logger.error(f"Invalid indices: {index1}, {index2}")
+            return False
+        # sort the indices
+        index1, index2 = min(index1, index2), max(index1, index2)
+        # shortcut info
+        if print_shortcuts:
+            logger.info(f"LPConfig has {len(LP_SHORTCUTS)} shortcuts.")
+            for shortcut, attrs in LP_SHORTCUTS.items():
+                tmp_cfg = LPConfig(**attrs)
+                logger.debug(f"Shortcut {shortcut} has code {tmp_cfg.xcode}")
+        # run the methods
+        cfgs = []
+        for method in [all_methods[index1], all_methods[index2]]:
+            _clear_env()
+            cfgs.append(method())
+        cfg1, cfg2 = cfgs[:2]
+        matches = cfg1 == cfg2
+        logger.info(f"code {index1} {cfg1.xcode} code ({index2}) {cfg1.xcode} {'PASS' if matches else 'FAIL'}")
+        return matches
