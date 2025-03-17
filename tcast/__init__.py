@@ -86,7 +86,6 @@ uint8_Fi = DataType("uint8", "float32_int8", "uint8_Fi")
 uint8_fi = DataType("uint8", "float16_int8", "uint8_fi")
 uint8_bi = DataType("uint8", "bfloat16_int8", "uint8_bi")
 uint8_ni = DataType("uint8", "e4m3_int8", "uint8_ni")
-uint8_ei = DataType("uint8", "e8m0_int8", "uint8_ei")
 
 int8_F = DataType("int8", "float32", "int8_F")
 int8_f = DataType("int8", "float16", "int8_f")
@@ -124,7 +123,6 @@ uint8_Fic = DataType("uint8", "float32_int8", "uint8_Fic")
 uint8_fic = DataType("uint8", "float16_int8", "uint8_fic")
 uint8_bic = DataType("uint8", "bfloat16_int8", "uint8_bic")
 uint8_nic = DataType("uint8", "e4m3_int8", "uint8_nic")
-uint8_eic = DataType("uint8", "e8m0_int8", "uint8_eic")
 
 uint4_FFc = DataType("uint4", "float32_float32_t0", "uint84_FFc")
 uint4_ffc = DataType("uint4", "float16_float16_t0", "uint4_ffc")
@@ -133,7 +131,6 @@ uint4_Fic = DataType("uint4", "float32_int8_t0", "uint4_Fic")
 uint4_fic = DataType("uint4", "float16_int8_t0", "uint4_fic")
 uint4_bic = DataType("uint4", "bfloat16_int8_t0", "uint4_bic")
 uint4_nic = DataType("uint4", "e4m3_int8_t0", "uint4_nic")
-uint4_eic = DataType("uint4", "e8m0_int8_t0", "uint4_eic")
 
 int8_Fc = DataType("int8", "float32_t0", "int8_Fc")
 int8_fc = DataType("int8", "float16_t0", "int8_fc")
@@ -208,7 +205,7 @@ mx9 = DataType("cb81ie_int9", "e8m0_t16s2", "mx9")
 mx6 = DataType("cb51ie_int7", "e8m0_t16s2", "mx6")
 mx4 = DataType("cb31ie_int5", "e8m0_t16s2", "mx4")
 bfp16 = DataType("int8", "e8m0_t8", "bfp16")
-bfp16t16 = DataType("int8", "e8m0_16", "bfp16t16")
+bfp16t16 = DataType("int8", "e8m0_t16", "bfp16t16")
 
 ### square tile scaled
 
@@ -270,9 +267,9 @@ def configuration(method) -> LPConfig:
     """Create an LP configuration with a code, json path, shortcut, or params."""
     if isinstance(method, int):
         return LPConfig(code=method)
-    if isinstance(method, Path | str):
+    if isinstance(method, Path):
         return LPConfig(json_path=method)
-    if isinstance(method, Shortcut):
+    if isinstance(method, str):
         return LPConfig(shortcut=method)
     return LPConfig(**method)
 
