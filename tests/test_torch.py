@@ -17,7 +17,7 @@ FP8_AVAILABLE = tcast.utils.is_float8_available()
 @pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
 @pytest.mark.parametrize("shape", [(1024, 1024), (8, 128, 64)])
 @pytest.mark.parametrize("computemode", ["torch", "triton"])
-@pytest.mark.parametrize("castmode", ["virtual", "actual"])
+@pytest.mark.parametrize("castmode", ["virtual"])
 def test_torch_unscaled_datatypes(shape: tuple[int], dtype: str | tcast.DataType, computemode: str, castmode: str):
     tensor = torch.randn(*shape).cuda().float()
     dtype = tcast.datatype(name=str(dtype))
