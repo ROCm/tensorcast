@@ -284,6 +284,8 @@ def get_imatrix(size: int, dtype: torch.dtype = torch.float32, walsh: bool = Tru
     return LPConfig.get_imatrix(size, dtype, walsh, randomize)
 
 
+logger = get_logger("tcast")
+
 def cast(
     tensor: torch.Tensor,
     dtype: DataType | torch.dtype,
@@ -307,12 +309,22 @@ def cast(
         tensor, DataType(str(dtype)) if isinstance(dtype, torch.dtype) else dtype, transpose_scale=transpose_scale, precast=True
     )
     out_dtype = dtype if isinstance(dtype, torch.dtype) else tensor.original_dtype
-    if Modes.compute == ComputeMode.TRITON and TritonCast.supports(tensor):
-        tensor = TritonCast.cast(tensor.precast())
-    elif TorchCast.supports(tensor):
-        tensor = TorchCast.cast(tensor.precast())
-    else:
+    tri_supports, tri_requested = TritonCast.supports(tensor), Modes.compute == ComputeMode.TRITON
+    tor_supports, tor_requested = TorchCast.supports(tensor), Modes.compute == ComputeMode.TORCH
+    assert tri_supports or tor_supports, f"tri_supports {tri_supports} tor_supports {tor_supports}"
+    if not (tri_supports or tor_supports):
         raise NotImplementedError("tcast.cast: datatype conversion not yet implemented in Triton or Torch")
+    tri_success = tor_success = None
+    if tri_supports and tri_requested:
+        tri_success = TritonCast.cast(tensor)
+    logger.info(f"tcast.cast: TritonCast requested: {tri_requested} supports: {tri_supports} success: {tri_success}")
+    if tor_supports and tor_requested and not tri_success:
+        tor_success = TorchCast.cast(tensor)
+    logger.info(f"tcast.cast: TorchCast requested: {tor_requested} supports: {tor_supports} success: {tor_success}")
+    if tri_success == False:
+        raise AssertionError("tcast.cast: datatype conversion FAILED in Triton")
+    if tor_success == False:
+        raise AssertionError("tcast.cast: datatype conversion FAILED in Torch")
     tensor.postcast()
     if Modes.cast == CastMode.VIRTUAL:
         torch_tensor = tensor.output.to(out_dtype)
