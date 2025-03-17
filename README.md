@@ -3,8 +3,8 @@
 # TensorCast (tcast)
 
 > This is the *triton* branch of TensorCast which recently started to be populated (3/3/25).
-For working code, use the v2 branch for now.  This branch will ***begin*** to be functional no later than
-3/21/25.
+> For working code, use the v2 branch for now.  This branch will ***begin*** to be functional
+> no later than 3/21/25.
 
 TensorCast is an open source PyTorch casting/quantization library. It is based on PyTorch 2.5+
 and Triton 3.3+.
@@ -28,7 +28,15 @@ and storage datatypes.
 We attempt to keep things simple, but the high degree of customization can introduce complexity
 at times.  We welcome feedback (and direct contribution) that will help us improve this package.
 
-## Status: 3/14/25
+## Status Updates
+
+### 3/17/25
+
+- added tests, including comparisons with MX (microxcaling) and tcast v2 branch
+- restructured tests to make it easier to debug everything
+- fixed a few bugs
+
+### 3/14/25
 
 The v2 branch is entirely in PyTorch, and has many of the features in development on the triton branch,
 with the notable exceptions of Triton kernels, the attention configuration and Triton interface,
