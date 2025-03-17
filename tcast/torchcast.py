@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 import torch
 
-from .common import CastMode, Modes, RoundMode, ScaleMode
+from .common import CastMode, ComputeMode, Modes, RoundMode, ScaleMode
 from .number import NumberSpec
 from .tensor import Tensor
 from .utils import get_logger
@@ -187,15 +187,25 @@ class TorchCast:
     @staticmethod
     def supports(tensor: Tensor) -> bool:
         """Check if the cast operation is supported by in the torch code."""
-        return Modes.cast != CastMode.COMPRESS
+        cast_virtual = Modes.cast == CastMode.VIRTUAL
+        compute_torch = Modes.compute == ComputeMode.TORCH
+        unscaled = tensor.dtype.is_unscaled
+        not_2d = unscaled or not tensor.dtype.sspec.is_2d
+        supports_all = cast_virtual and compute_torch and not_2d
+        assert supports_all is True, f"{cast_virtual}, {compute_torch}, {not_2d}"
+        return supports_all
+        # return (
+        #     Modes.cast == CastMode.VIRTUAL
+        #     and Modes.compute == "torch"
+        #     and (tensor.dtype.is_unscaled or not tensor.dtype.sspec.is_2d)
+        # )
 
     @staticmethod
     def cast(tensor: Tensor) -> bool:
         """Cast interface using PyTorch ops."""
-        if not TorchCast.supports(tensor):
-            return False
         if tensor.dtype.is_unscaled:
             TorchCast.cast_unscaled(tensor)
+            return True
         else:
             TorchCast.select_scales(tensor)
             if tensor.dtype.is_sparse:
@@ -204,4 +214,4 @@ class TorchCast:
                 TorchCast.apply_codebook(tensor)
             else:
                 TorchCast.apply_scales(tensor)
-        return tensor
+        return tensor.scale is not None
