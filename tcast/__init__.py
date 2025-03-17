@@ -10,7 +10,7 @@ from typing import overload
 import torch
 
 from .common import CastMode, ComputeMode, Modes, RoundMode, ScaleMode, get_enum
-from .config import LPConfig, Shortcut
+from .config import LPConfig
 from .datatype import DataType
 from .injector import mixed_precision_injector, torch_injector
 from .number import Codebook, NumberLine, NumberSpec
