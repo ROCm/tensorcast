@@ -4,9 +4,96 @@
 
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
 
+import importlib
 import struct
 
 import torch
+
+import tcast
+
+SHAPES_2D = [(1024, 1024)]
+SHAPES_3D = [(8, 128, 64)]
+SHAPES_4D = [(8, 128, 64, 64)]
+SHAPES_23D = SHAPES_2D + SHAPES_3D
+SHAPES_234D = SHAPES_2D + SHAPES_3D + SHAPES_4D
+
+TORCH_DTYPES_16 = [torch.float16, torch.bfloat16]
+TORCH_DTYPES_32 = [torch.float32]
+TORCH_DTYPES_8 = [torch.float8_e5m2, torch.float8_e5m2fnuz, torch.float8_e4m3fn, torch.float8_e4m3fnuz]
+TORCH_DTYPES_32_16 = TORCH_DTYPES_32 + TORCH_DTYPES_16
+TORCH_DTYPES_16_8 = TORCH_DTYPES_16 + TORCH_DTYPES_8
+TORCH_DTYPES_32_16_8 = TORCH_DTYPES_32_16 + TORCH_DTYPES_8
+
+V2_AVAILABLE = importlib.util.find_spec("tcastv2") is not None
+MX_AVAILABLE = importlib.util.find_spec("mx") is not None
+SQT_AVAILABLE = importlib.util.find_spec("sqt") is not None
+logger = tcast.get_logger("tcast_unittest")
+
+
+def dependency_assert(lib: str = "v2"):
+    """Assert with message for v2/mx/sqt tests."""
+    if lib == "v2" and not V2_AVAILABLE:
+        logger.error(
+            "tcastv2 package not found:\n"
+            "> mkdir tmp; cd tmp\n"
+            "> git clone https://github.com/ROCm/tensorcast.git\n"
+            "> git switch v2\n"
+            "> cp -r tensorcast/tcast $TCAST/tcastv2\n"
+        )
+        raise AssertionError("tcastv2 package not found")
+    if lib == "mx" and not MX_AVAILABLE:
+        logger.error(
+            "mx package not found:\n"
+            "> mkdir tmp; cd tmp\n"
+            "> git clone github.com/microsoft/microxcaling\n"
+            "> cp -r microxcaling/mx $TCAST/mx\n"
+        )
+        raise AssertionError("mx package not found")
+    if lib == "sqt" and not SQT_AVAILABLE:
+        logger.error(
+            "sqt package not found; need to get access from @alirezak:\n"
+            "> mkdir tmp; cd tmp\n"
+            "> git clone https://github.com/Xilinx/sqt.git\n"
+            "> cp -r sqt/sqt $TCAST/sqt\n"
+        )
+        raise AssertionError("sqt package not found")
+
+
+def convert_triton_dtype_to_v2(dtype: tcast.DataType):
+    """Convert a triton DataType to a v2 DataType."""
+    dependency_assert("v2")
+    import tcastv2
+
+    if dtype.is_codebook:
+        raise NotImplementedError("Codebook not supported in v2/triton conversion")
+    if dtype.nspec.torch_dtype:
+        ncode = dtype.nspec.torch_dtype
+    else:
+        n = dtype.nspec
+        ncode = f"e{n.ebits}m{n.mbits}b{n.bias}"
+        infnan = n.infnan.name.lower()
+        if infnan != "ieee":
+            ncode += infnan
+    if dtype.is_unscaled:
+        scode = None
+    else:
+        if dtype.sspec.is_2d:
+            raise NotImplementedError("2D sspec not supported in v2/triton conversion")
+        s = dtype.sspec
+        if s.scale.is_exponent:
+            scode = f"e{s.scale.ebits}m{s.scale.mbits}"
+        else:
+            scode = f"e{s.scale.ebits}m{s.scale.mbits}b{s.scale.bias}{s.scale.infnan}"
+        if s.zero:
+            if s.zero.is_int:
+                scode += f"_int{s.zero.bits}"
+            elif s.zero.is_float:
+                scode += f"_e{s.zero.ebits}m{s.zero.mbits}b{s.zero.bias}{s.zero.infnan}"
+            else:
+                raise ValueError(f"Unknown zero type {s.zero}")
+        if not s.is_tensor:
+            scode += f"_t{0 if s.is_channel else s.tile1}"
+    return tcastv2.DataType(nspec=ncode, sspec=scode)
 
 
 def compare_2(tensor1, tensor2):
@@ -97,7 +184,7 @@ def float_to_bfp(fval, max_exp, rmode, mbits):
     else:
         # insert implicit 1. Since we are quantizing, and bit0 is being eliminated, we don't care about
         # bit0 - might be important for rounding. We will see in the tests ..
-        mantScaled = ((mant >> 1) | 0x400000)
+        mantScaled = (mant >> 1) | 0x400000
         mantScaled = mantScaled >> scale  # scale to max exponent
         mant = round_func(sign, mantScaled, rmode, mbits, mant, scale)  # rounding
         if mant == 0:
