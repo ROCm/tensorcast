@@ -38,7 +38,7 @@ class DataType:
             else:
                 # we have an unregistered name that we can try to figure out
                 segments = name.split("_")
-                if len(segments > 1) and NumberSpec.valid("_".join(segments[:2])):
+                if len(segments )> 1 and NumberSpec.valid("_".join(segments[:2])):
                     nspec = "_".join(segments[:2])
                     sspec = "_".join(segments[2:])
                 else:
@@ -56,7 +56,7 @@ class DataType:
         self.sspec = sspec if isinstance(sspec, ScaleSpec) else ScaleSpec(sspec) if sspec else None
         self._name = name
         for attr in ("channel", "tile", "subtile", "sparse", "tensor", "multiscale", "2d"):
-            setattr(self, f"is_{attr}", self.sspec and getattr(self.sspec, f"is_{attr}"))
+            setattr(self, f"is_{attr}", self.sspec is not None and getattr(self.sspec, f"is_{attr}"))
         self.is_unscaled, self.is_codebook = self.sspec is None, self.nspec.is_codebook
         self._check()
         self.registry[self.name] = self
@@ -112,6 +112,13 @@ class DataType:
         if self.sspec:
             s += "_" + self.sspec.name
         return s
+
+    @classmethod
+    def gather_registered(cls, fn: callable = None) -> list:
+        """Return a list of all registered DataType instances for which the fn is True."""
+        if fn is None:
+            return list(cls.registry.keys()) # get them all
+        return [dt for dt in cls.registry.values() if fn(dt)]
 
     @classmethod
     def valid(cls, ncode: str = None, scode: str = None, name: str = None) -> bool:
