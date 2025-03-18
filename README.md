@@ -30,6 +30,12 @@ at times.  We welcome feedback (and direct contribution) that will help us impro
 
 ## Status Updates
 
+### 3/18/25
+
+- fixed bugs with P3109 number specs, tensor reshape, torchcast unscaled
+- added more tests to torch virtual unscaled
+- added test harness and documented tests to be prioritized and developed
+
 ### 3/17/25
 
 - added tests, including comparisons with MX (microxcaling) and tcast v2 branch
@@ -249,3 +255,5 @@ Whether we follow through on this depends on whether there is a need for it inte
 ---
 
 [TensorCast Documentation](./docs/README.md)
+</br>
+[Test Docmentation](./tests/README.md)
