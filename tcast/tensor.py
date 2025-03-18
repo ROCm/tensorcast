@@ -45,7 +45,7 @@ class Tensor:
         self.original_shape, self.original_device, self.original_dtype = tensor.size(), tensor.device, tensor.dtype
         self.output = self.tenscale = self.scale = self.zero = self.meta = self.mask = None
         self.transpose_scale = transpose_scale
-        self.is_compressed = False
+        self.is_compressed = self.quantized = False
         self.shape_transforms = []
         self.shape_info = {}
         if precast:
@@ -127,7 +127,7 @@ class Tensor:
         """Prior to cast, set up tensors."""
         if self.dtype.is_unscaled:
             self.output = torch.zeros_like(self.input, dtype=self.get_shapeinfo("output").get_info(Modes.cast)[1])
-            return self
+            return
         if self.input.ndim > 4:
             raise NotImplementedError("More than 4D shapes are not supported.")
         if self.dtype.is_tensor and Modes.cast != CastMode.COMPRESS:
@@ -199,10 +199,11 @@ class Tensor:
                 if self.dtype.is_codebook:
                     shape, dtype = self.get_shapeinfo("meta", tile0, tile1, subtile0, subtile1).get_info(Modes.cast)
                     self.meta = torch.zeros(shape, dtype=dtype, device=self.original_device)
-        return self
 
     def postcast(self):
         """Reshape the tensors to match the original shape."""
+        if self.dtype.is_unscaled or self.dtype.is_tensor and Modes.cast != CastMode.COMPRESS:
+            return
         if Modes.cast == CastMode.VIRTUAL:
             if self.transpose_scale:
                 self.output = self.output.transpose(0, 1)
@@ -229,3 +230,4 @@ class Tensor:
             if isinstance(value, torch.Tensor):
                 assert hasattr(self, key) and isinstance(getattr(self, key), torch.Tensor)
                 getattr(self, key).copy_(value)
+        self.quantized = True
