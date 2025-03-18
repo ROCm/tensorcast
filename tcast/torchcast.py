@@ -37,9 +37,11 @@ class TorchCast:
     @staticmethod
     def _cast_unscaled(x: torch.Tensor, nspec: NumberSpec) -> torch.Tensor:
         assert x.is_floating_point and nspec.is_float
-        valexp = TorchCast.get_exponents(x).clamp_min(nspec.emin)
+        y = x.float()
+        valexp = TorchCast.get_exponents(y).clamp_min(nspec.emin)
         rscale = (nspec.mbits - valexp).exp2()
-        return TorchCast.round(x * rscale).div(rscale).clamp(-nspec.finfo.maxfloat, nspec.finfo.maxfloat).to(x.dtype)
+        y = TorchCast.round(y * rscale).div(rscale).clamp(-nspec.finfo.maxfloat, nspec.finfo.maxfloat)
+        return y.to(x.dtype)
 
     @staticmethod
     def cast_unscaled(tensor: Tensor):
@@ -214,4 +216,4 @@ class TorchCast:
                 TorchCast.apply_codebook(tensor)
             else:
                 TorchCast.apply_scales(tensor)
-        return tensor.scale is not None
+        return tensor.quantized
