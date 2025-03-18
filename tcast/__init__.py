@@ -286,6 +286,7 @@ def get_imatrix(size: int, dtype: torch.dtype = torch.float32, walsh: bool = Tru
 
 logger = get_logger("tcast")
 
+
 def cast(
     tensor: torch.Tensor,
     dtype: DataType | torch.dtype,
@@ -321,9 +322,9 @@ def cast(
     if tor_supports and tor_requested and not tri_success:
         tor_success = TorchCast.cast(tensor)
     logger.info(f"tcast.cast: TorchCast requested: {tor_requested} supports: {tor_supports} success: {tor_success}")
-    if tri_success == False:
+    if tri_success == False:  # noqa: E712
         raise AssertionError("tcast.cast: datatype conversion FAILED in Triton")
-    if tor_success == False:
+    if not tor_success:
         raise AssertionError("tcast.cast: datatype conversion FAILED in Torch")
     tensor.postcast()
     if Modes.cast == CastMode.VIRTUAL:
@@ -332,58 +333,3 @@ def cast(
         tensor = torch_tensor
     Modes.restore_modes()
     return tensor
-
-
-def upcast(
-    tensor: Tensor,
-    torch_dtype: torch.dtype = None,
-    roundmode: RoundMode | str = None,
-    scalemode: ScaleMode | str = None,
-    computemode: ComputeMode | str = None,
-    castmode: CastMode | str = None,
-    transpose_scale: bool = False,
-) -> torch.Tensor:
-    """Upcast tcast.Tensor to a torch dtype."""
-    Modes.set_modes(roundmode, scalemode, computemode, castmode)
-    if not isinstance(tensor, Tensor):
-        raise ValueError("tcast.upcast: tensor must be a tcast.Tensor")
-    if torch_dtype is None:
-        torch_dtype = tensor.original_dtype
-    if not isinstance(torch_dtype, torch.dtype):
-        raise ValueError("tcast.upcast: torch_dtype must be a torch.dtype")
-    tensor = tensor.output.to(torch_dtype)
-    # ...
-    Modes.restore_modes()
-    raise NotImplementedError("tcast.upcast: upcast not yet implemented in Triton or Torch")
-    # case 1: cast tensor is unscaled
-    # if tensor.is_unscaled:
-    #     if
-    #     tensor = tensor.output.to(dtype)
-    # # case 2: tensor is unscaled
-    # if tensor.dtype.is_unscaled
-    # # step 1 is to cast the scaled tensor to the torch.dtype
-
-
-# def vcast(
-#     tensor: torch.Tensor,
-#     dtype: DataType | torch.dtype,
-#     roundmode: RoundMode | str = None,
-#     scalemode: ScaleMode | str = None,
-#     computemode: ComputeMode | str = None,
-#     castmode: CastMode | str = None,
-#     transpose_scale: bool = False,
-# ) -> torch.Tensor:
-#     """Virtual cast of torch.Tensor to dtype, stored in tcast.Tensor."""
-#     Modes.set_modes(roundmode, scalemode, computemode, castmode)
-#     if Modes.cast != CastMode.VIRTUAL:
-#         raise ValueError("tcast.vcast: castmode must be 'virtual'")
-#     if Modes.compute == ComputeMode.TORCH:
-#         return cast(tensor, dtype, transpose_scale=transpose_scale)
-#     elif not TritonCast.supports(tensor, dtype, transpose_scale):
-#         raise ValueError("tcast.vcast: triton mode does not support this conversion")
-#     tensor = Tensor(tensor, dtype, transpose_scale=transpose_scale, precast=True)
-#     tensor = TritonCast.vcast(tensor, dtype, transpose_scale=transpose_scale)
-
-#     assert isinstance(tensor, torch.Tensor)
-#     Modes.restore_modes()
-#     return tensor
