@@ -119,7 +119,7 @@ class NumberSpec:
         minint = -maxint if self.signed else 0
         maxfloat = minfloat = midmax = smallest_normal = smallest_subnormal = eps = 0.0
         if self.ebits:
-            self.emax = 2**self.ebits - 1 - self.bias - int(self.infnan in (InfNaN.IEEE, InfNaN.INUZ))
+            self.emax = 2**self.ebits - 1 - self.bias - int(self.infnan == InfNaN.IEEE)
             self.emin = 1 - self.bias
             maxfloat = 2**self.emax * (2.0 - (1 + int(self.infnan in (InfNaN.FN, InfNaN.INUZ))) * 2 ** (-self.mbits))
             minfloat = -maxfloat
