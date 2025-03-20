@@ -9,7 +9,7 @@ import torch
 import triton
 import triton.language as tl
 
-from .common import CastMode, Modes, RoundMode, ScaleMode
+from .common import FP8_DTYPES, STD_DTYPES, CastMode, Modes, RoundMode, ScaleMode
 from .snippets import get_exponent, get_shared_exponent, modify_exponent, quantize_float
 from .tensor import Tensor
 from .utils import is_triton_available
@@ -205,17 +205,19 @@ class TritonCast:
     @staticmethod
     def supports(tensor: Tensor) -> bool:
         """Check if the cast operation is supported by in the triton code."""
-        available = is_triton_available()
-        cast_not_compress = Modes.cast != CastMode.COMPRESS
-        float_spec = tensor.dtype.nspec.is_float
-        supports_all = available and cast_not_compress and float_spec
-        return supports_all
-        # assert supports_all is not False, f"{available}, {cast_not_compress}, {float_spec}"
-        # return (
-        #     is_triton_available()
-        #     and Modes.cast != CastMode.COMPRESS
-        #     and tensor.dtype.nspec.is_float
-        # )
+        if not is_triton_available():
+            return False
+        if Modes.cast == CastMode.UPCAST:
+            return False # TODO(ericd) implement upcast, then change this
+        else:
+            return (
+                Modes.cast != CastMode.COMPRESS
+                and tensor.input.dim() == 2
+                and tensor.input.dtype in STD_DTYPES
+                and tensor.dtype.torch_dtype in FP8_DTYPES
+                and not tensor.needs_pad()
+                and tensor.dtype.is_square
+            )
 
     @staticmethod
     def cast(tensor: Tensor, transpose_scale: bool = False) -> bool:
@@ -256,14 +258,11 @@ class TritonCast:
     @staticmethod
     def upcast(tensor: Tensor, torch_dtype: torch.dtype = None):
         """Upcast data to the specified dtype."""
+        #TODO(ericd): must implement
         if torch_dtype is None:
             torch_dtype = tensor.original_dtype
         if tensor.original_dtype.is_floating() != torch_dtype.is_floating():
             raise ValueError("Upcast requires the same dtype family (both float or both int.")
-        raise NotImplementedError("Decompress not implemented for TritonCast.")
-
-
-    @staticmethod
-    def decompress(tensor: Tensor):
-        """Decompress data to the specified dtype."""
-        raise NotImplementedError("Decompress not implemented for TritonCast.")
+        if not tensor.quantized:
+            raise ValueError("Upcast requires a quantized tensor.")
+        raise NotImplementedError("Upcast not implemented for TritonCast.")
