@@ -11,7 +11,7 @@ import torch
 
 from .common import CastMode, ComputeMode, Modes, ScaleData
 from .datatype import DataType
-from .utils import cdiv, get_logger
+from .utils import cdiv, get_logger, is_multiple
 
 logger = get_logger()
 
@@ -51,10 +51,16 @@ class Tensor:
         if precast:
             self.precast()
 
-    # @property
-    # def tensor(self) -> torch.Tensor:
-    #     """Get the tensor data."""
-    #     return self.input
+    @property
+    def needs_pad(self) -> bool:
+        """See if the tensor dims are not multiples of the tile scales."""
+        if self.input.dim() != 2:
+            raise NotImplementedError("More than 2D shapes are not supported yet.")
+        if not self.dtype.is_tile or not self.dtype.is_2d or self.dtype.is_sparse:
+            raise NotImplementedError("Only square tiles are supported.")
+        tile0, tile1 = self.dtype.sspec.tile0, self.dtype.sspec.tile1
+        size0, size1 = self.input.size() if not self.transpose_scale else self.input.size()[::-1]
+        return not (is_multiple(size0, tile0) and is_multiple(size1, tile1))
 
     def get_scaledata(self) -> ScaleData:
         """Get the scale data for the tensor."""
@@ -228,6 +234,9 @@ class Tensor:
         """Update the tensors during cast."""
         for key, value in kwargs.items():
             if isinstance(value, torch.Tensor):
-                assert hasattr(self, key) and isinstance(getattr(self, key), torch.Tensor)
-                getattr(self, key).copy_(value)
+                if Modes.cast == CastMode.VIRTUAL:
+                    setattr(self, key, value)
+                else:
+                    assert hasattr(self, key) and isinstance(getattr(self, key), torch.Tensor)
+                    getattr(self, key).copy_(value)
         self.quantized = True
