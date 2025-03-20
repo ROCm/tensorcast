@@ -44,6 +44,8 @@ class ScaleSpec:
     @property
     def is_sparse(self) -> bool: return self.sparse_m > 1
     @property
+    def is_square(self) -> bool: return self.is_2d and self.tile0 == self.tile1
+    @property
     def is_multiscale(self) -> bool: return self._tenscale is not None
     @property
     def sparse_ratio(self) -> int: return cdiv(self.sparse_m, self.sparse_n)
