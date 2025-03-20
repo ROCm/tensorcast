@@ -33,7 +33,7 @@ class TorchCast:
     def get_exponents(x: torch.Tensor) -> torch.Tensor:
         """Get the unbiased exponents, replacing x==0 with something that won't break the math."""
         exponents = x.frexp().exponent - 1
-        exponents[x == 0] = 100
+        exponents[x == 0] = -126
         return exponents
 
     @staticmethod
