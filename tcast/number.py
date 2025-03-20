@@ -11,7 +11,7 @@ from typing import NamedTuple
 
 import torch
 
-from .common import IMPLICIT_CODEBOOKS, MX2NUMSPEC, InfNaN, get_enum
+from .common import FP8_DTYPES, IMPLICIT_CODEBOOKS, MX2NUMSPEC, InfNaN, get_enum
 from .utils import is_float8_available, is_float8_fnuz_available
 
 
@@ -42,6 +42,7 @@ class NumberSpec:
     finfo: Finfo = None
     emax: int = None
     emin: int = None
+    _bias_hack: int = 0
 
     def __init__(self, code: str | torch.dtype):
         """Sets fields based on input code string, transforming the string to a canonical form."""
@@ -59,7 +60,7 @@ class NumberSpec:
             )
 
         # 3.  Check for instrisic non-standard bias
-        bias_hack = int(name.startswith("float8") and name.endswith("fnuz"))  # implicit non-standard bias for torch fnuz
+        self._bias_hack = int(name.startswith("float8") and name.endswith("fnuz"))  # implicit non-standard bias for torch fnuz
         name = name.removeprefix("float8").removeprefix("_")
 
         # 4.  Handle P3109-style string codes; these are a hybrid of "fn" and "fnuz" that we call "inuz"
@@ -106,7 +107,7 @@ class NumberSpec:
                     self.infnan = get_enum(InfNaN, m.group(4))
                 # the following kludge was brought to you by OCP unsigned floating point "exponent" specs
                 self.signed = not (self.infnan == InfNaN.IEEE and self.mbits == 0)
-                self.bias = 2 ** (self.ebits - 1) - 1 + bias_hack if self.bias is None else int(self.bias[1:])
+                self.bias = 2 ** (self.ebits - 1) - 1 + self._bias_hack if self.bias is None else int(self.bias[1:])
             else:
                 raise ValueError(f"NumberSpec: code {name} is not a valid format.")
         if self.bits > 32:
@@ -139,6 +140,8 @@ class NumberSpec:
     @property
     def name(self) -> str: return self._name
     @property
+    def std_bias(self) -> bool: return self.bias == 2**(self.ebits - 1) - 1 - self._bias_hack
+    @property
     def bits(self) -> int: return self.ebits + self.mbits + int(self.signed)
     @property
     def is_float(self) -> bool: return self.ebits > 1 and self.signed
@@ -148,6 +151,8 @@ class NumberSpec:
     def is_uint(self) -> bool: return self.ebits == 0
     @property
     def is_exponent(self) -> bool: return self.ebits > 1 and not self.signed
+    @property
+    def is_fp8(self) -> bool: return self.torch_dtype in FP8_DTYPES
     @property
     def is_codebook(self): return False
     @property
