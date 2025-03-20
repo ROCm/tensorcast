@@ -45,6 +45,7 @@ def is_power_of_2(n: int) -> bool: return (n & (n - 1)) == 0 if n >= 0 else Fals
 def next_power_of_2(n: int) -> bool: return 1 << (n - 1).bit_length() if n else 1
 def cdiv(a: int, b: int) -> int: return math.ceil(a / b)
 def next_multiple(n: int, m: int) -> int: return cdiv(n, m) * m
+def is_multiple(n: int, m: int) -> int: return n % m == 0
 def is_hip() -> bool: return triton.runtime.driver.active.get_current_target().backend == "hip"
 def get_arch(): return triton.runtime.driver.active.get_current_target().arch
 def is_mi300() -> bool: return is_hip() and get_arch().startswith("gfx94")
