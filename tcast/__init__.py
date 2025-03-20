@@ -9,7 +9,7 @@ from typing import overload
 
 import torch
 
-from .common import CastMode, ComputeMode, Modes, RoundMode, ScaleMode, get_enum
+from .common import STD_DTYPES, CastMode, ComputeMode, InfNaN, Modes, RoundMode, ScaleMode, get_enum
 from .config import LPConfig
 from .datatype import DataType
 from .injector import mixed_precision_injector, torch_injector
@@ -26,6 +26,7 @@ from .utils import (
     is_triton_available,
     kurtosis,
     make_outliers,
+    next_multiple,
     next_power_of_2,
     printoptions,
     set_seed,
@@ -143,17 +144,6 @@ int4_fc = DataType("int4", "float16_t0", "int4_fc")
 int4_bc = DataType("int4", "bfloat16_t0", "int4_bc")
 int4_nc = DataType("int4", "e4m3_t0", "int4_nc")
 int4_ec = DataType("int4", "e8m0_t0", "int4_ec")
-
-bf8_F = DataType("e5m2", "float32_t0", "bf8_F")
-bf8_f = DataType("e5m2", "float16_t0", "bf8_f")
-bf8_b = DataType("e5m2", "bfloat16_t0", "bf8_b")
-bf8_n = DataType("e5m2", "e4m3_t0", "bf8_n")
-bf8_e = DataType("e5m2", "e8m0_t0", "bf8_e")
-bf8n_F = DataType("e5m2fnuz", "float32_t0", "bf8n_F")
-bf8n_f = DataType("e5m2fnuz", "float16_t0", "bf8n_f")
-bf8n_b = DataType("e5m2fnuz", "bfloat16_t0", "bf8n_b")
-bf8n_n = DataType("e5m2fnuz", "e4m3_t0", "bf8n_n")
-bf8n_e = DataType("e5m2fnuz", "e8m0_t0", "bf8n_e")
 
 fp8_Fc = DataType("e4m3fn", "float32_t0", "fp8_Fc")
 fp8_fc = DataType("e4m3fn", "float16_t0", "fp8_fc")
@@ -318,10 +308,10 @@ def cast(
     tri_success = tor_success = None
     if tri_supports and tri_requested:
         tri_success = TritonCast.cast(tensor)
-    logger.info(f"tcast.cast: TritonCast requested: {tri_requested} supports: {tri_supports} success: {tri_success}")
+    # logger.info(f"tcast.cast: TritonCast requested: {tri_requested} supports: {tri_supports} success: {tri_success}")
     if tor_supports and tor_requested and not tri_success:
         tor_success = TorchCast.cast(tensor)
-    logger.info(f"tcast.cast: TorchCast requested: {tor_requested} supports: {tor_supports} success: {tor_success}")
+    # logger.info(f"tcast.cast: TorchCast requested: {tor_requested} supports: {tor_supports} success: {tor_success}")
     if tri_success == False:  # noqa: E712
         raise AssertionError("tcast.cast: datatype conversion FAILED in Triton")
     if not tor_success:
@@ -333,3 +323,40 @@ def cast(
         tensor = torch_tensor
     Modes.restore_modes()
     return tensor
+
+
+def upcast(
+    tensor: Tensor,
+    torch_dtype: torch.dtype,
+    computemode: ComputeMode | str = "triton",
+) -> torch.Tensor | Tensor:
+    """
+    Upcast from actual or compress tcast.Tensor to a virtual (unscaled) tensor of torch_dtype.
+
+    Returns torch.Tensor. All needed information is in the quantized tcast.Tensor.  Not
+    implemented for TorchCast yet. Castmode must be UPCAST.
+    """
+    Modes.set_modes(computemode=computemode, castmode="upcast")
+    if not isinstance(tensor, Tensor):
+        raise ValueError("tcast.upcast: tensor must be tcast.Tensor")
+    if not isinstance(torch_dtype, torch.dtype):
+        raise ValueError("tcast.upcast: torch_dtype must be torch.dtype")
+    if torch_dtype not in STD_DTYPES:
+        raise ValueError(f"tcast.upcast: torch_dtype {torch_dtype} not in standard (fp32/fp16/bf16) dtypes")
+    tri_supports, tri_requested, tri_success = TritonCast.supports(tensor), Modes.compute == ComputeMode.TRITON, None
+    tor_supports, tor_requested, tor_success = TorchCast.supports(tensor), Modes.compute == ComputeMode.TORCH, None
+    if not (tri_supports or tor_supports):
+        raise NotImplementedError("tcast.upcast: datatype conversion not yet implemented in Triton or Torch")
+    assert tri_requested or tor_requested
+    if tri_supports and (tri_requested or not tor_supports):
+        vtensor = TritonCast.upcast(tensor, torch_dtype)
+        tri_success = vtensor is not None
+    if not tri_success and tor_supports:
+        vtensor = TorchCast.upcast(tensor, torch_dtype)
+        tor_success = vtensor is not None
+    assert tri_success is not None or tor_success is not None
+    if vtensor is None:
+        if tri_success  == False:  # noqa: E712
+            raise AssertionError("tcast.upcast: datatype upcast FAILED in Triton")
+        if tor_success == False:  # noqa: E712
+            raise AssertionError("tcast.upcast: datatype upcast FAILED in Torch")
