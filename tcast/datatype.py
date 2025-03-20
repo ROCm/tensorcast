@@ -38,7 +38,7 @@ class DataType:
             else:
                 # we have an unregistered name that we can try to figure out
                 segments = name.split("_")
-                if len(segments )> 1 and NumberSpec.valid("_".join(segments[:2])):
+                if len(segments) > 1 and NumberSpec.valid("_".join(segments[:2])):
                     nspec = "_".join(segments[:2])
                     sspec = "_".join(segments[2:])
                 else:
@@ -59,6 +59,13 @@ class DataType:
             setattr(self, f"is_{attr}", self.sspec is not None and getattr(self.sspec, f"is_{attr}"))
         self.is_unscaled, self.is_codebook = self.sspec is None, self.nspec.is_codebook
         self._check()
+        self.is_mxfp = (
+            self.nspec.name in ("e5m2", "e4m3fn", "e3m2fnuz", "e2m3fnuz", "e2m1fnuz")
+            and self.is_tile
+            and self.sspec.tile1 == 32
+            and not self.is_2d
+            and not self.is_sparse
+        )
         self.registry[self.name] = self
 
     def _check(self):
@@ -117,7 +124,7 @@ class DataType:
     def gather_registered(cls, fn: callable = None) -> list:
         """Return a list of all registered DataType instances for which the fn is True."""
         if fn is None:
-            return list(cls.registry.keys()) # get them all
+            return list(cls.registry.keys())  # get them all
         return [dt for dt in cls.registry.values() if fn(dt)]
 
     @classmethod
