@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 import torch
 
-from .common import CastMode, ComputeMode, Modes, RoundMode, ScaleMode
+from .common import FP8_DTYPES, STD_DTYPES, CastMode, Modes, RoundMode, ScaleMode
 from .number import NumberSpec
 from .tensor import Tensor
 from .utils import get_logger
@@ -31,12 +31,16 @@ class TorchCast:
 
     @staticmethod
     def get_exponents(x: torch.Tensor) -> torch.Tensor:
-        """torch.frexp is broken."""
-        return (x.abs() + torch.finfo(x.dtype).smallest_normal).log2().floor()
+        """Get the unbiased exponents, replacing x==0 with something that won't break the math."""
+        exponents = x.frexp().exponent - 1
+        exponents[x == 0] = 100
+        return exponents
 
     @staticmethod
     def _cast_unscaled(x: torch.Tensor, nspec: NumberSpec) -> torch.Tensor:
         assert x.is_floating_point and nspec.is_float
+        if nspec.torch_dtype == torch.float32:
+            return x
         y = x.float()
         valexp = TorchCast.get_exponents(y).clamp_min(nspec.emin)
         rscale = (nspec.mbits - valexp).exp2()
@@ -95,11 +99,13 @@ class TorchCast:
     def apply_scales(tensor: Tensor) -> None:
         """Given scales, return cast tensor."""
         nspec, sspec = tensor.dtype.nspec, tensor.dtype.sspec
-        assert tensor.has_scales and not nspec.is_codebook and not sspec.is_subtile
+        assert tensor.scale is not None and not nspec.is_codebook and not sspec.is_subtile
+        assert tensor.zero is not None or not nspec.is_uint
         x, scale, zero = tensor.input, tensor.scale, tensor.zero
         minint, maxint, maxfloat = nspec.finfo.minint, nspec.finfo.maxint, nspec.finfo.maxfloat
         if nspec.is_uint:
             assert zero is not None
+            assert sspec.scale.is_float
             eps = torch.finfo(torch.float32).eps
             if sspec.zero.is_float:
                 x = scale * TorchCast.round((x + zero) / scale.clamp_min(eps)).clamp(0, maxint) - zero
@@ -147,9 +153,9 @@ class TorchCast:
         zero = None
         if nspec.is_uint:
             assert sspec.scale.is_float and sspec.zero
-            tmin, tmax = torch.aminmax(x, dim=dim, keepdim=True)
+            tmin, tmax = torch.aminmax(x, dim=dim, keepdim=(dim is not None))
             tmin, tmax = tmin.clamp_max(0.0), tmax.clamp_min(0.0)
-            scale = TorchCast._cast_unscaled((tmax - tmin) / nspec.maxint, sspec.scale)
+            scale = TorchCast._cast_unscaled((tmax - tmin) / nspec.finfo.maxint, sspec.scale)
             zero = TorchCast._cast_unscaled(-tmin, sspec.zero) if sspec.zero.is_float else TorchCast.round(-tmin / scale)
         elif sspec.scale.is_float:
             scale = (
@@ -189,18 +195,14 @@ class TorchCast:
     @staticmethod
     def supports(tensor: Tensor) -> bool:
         """Check if the cast operation is supported by in the torch code."""
-        cast_virtual = Modes.cast == CastMode.VIRTUAL
-        compute_torch = Modes.compute == ComputeMode.TORCH
-        unscaled = tensor.dtype.is_unscaled
-        not_2d = unscaled or not tensor.dtype.sspec.is_2d
-        supports_all = cast_virtual and compute_torch and not_2d
-        assert supports_all is True, f"{cast_virtual}, {compute_torch}, {not_2d}"
-        return supports_all
-        # return (
-        #     Modes.cast == CastMode.VIRTUAL
-        #     and Modes.compute == "torch"
-        #     and (tensor.dtype.is_unscaled or not tensor.dtype.sspec.is_2d)
-        # )
+        return (
+            Modes.cast == CastMode.VIRTUAL
+            and tensor.input.dim() == 2
+            and tensor.input.dtype in STD_DTYPES
+            and tensor.dtype.torch_dtype in FP8_DTYPES
+            and not tensor.needs_pad()
+            and tensor.dtype.is_square
+        )
 
     @staticmethod
     def cast(tensor: Tensor) -> bool:
@@ -217,3 +219,8 @@ class TorchCast:
             else:
                 TorchCast.apply_scales(tensor)
         return tensor.quantized
+
+    @staticmethod
+    def upcast(tensor: Tensor, torch_dtype: torch.dtype) -> torch.Tensor:
+        """Upcast interface using PyTorch ops."""
+        raise NotImplementedError("Upcast not implemented in torchcast.")
