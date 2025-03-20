@@ -15,6 +15,8 @@ from .utils import is_triton_available
 logger = logging.getLogger(f"tcast.{__name__}")
 
 EPS = torch.finfo(torch.float32).smallest_normal
+STD_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
+FP8_DTYPES = (torch.float8e4m3fn, torch.float8_e4m3fnuz, torch.float8_e5m2, torch.float8_e5m2fnuz)
 
 
 class RoundMode(Enum):
@@ -49,6 +51,7 @@ class CastMode(Enum):
     VIRTUAL = 0  # fake quantization, just returns with the same torch.dtype and shape
     ACTUAL = 1  # data, scale, zero, meta, and mask in the appropriate datatypes
     COMPRESS = 2  # packs multiple values into single elements, e.g. 2 4-bit codebook indices, sparsity mask 8x compression
+    UPCAST = 3  # upcast to a larger datatype, e.g. 4-bit to 8-bit, 8-bit to 16-bit, etc.
 
 
 class InfNaN(Enum):
@@ -58,6 +61,10 @@ class InfNaN(Enum):
     FN = 1  # all non-sign bits on = NaN, all non-sign bits off = Inf
     FNUZ = 2  # neg zero = Nan, no inf
     INUZ = 3  # proposed by IEEE working group P3109
+
+    def suffix(self) -> str:
+        """Return the suffix for the datatype."""
+        return self.name.lower() if self != InfNaN.IEEE else ""
 
 
 def get_enum(etype: Enum, s: str, silent: bool = False) -> int | None:
