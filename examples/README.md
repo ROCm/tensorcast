@@ -2,9 +2,15 @@
 
 # Examples
 
-> TODO(ericd) *this needs editing*
+> TODO(ericd) *this needs editing and more examples*
 
 A collection of examples on how to use Tensorcast.
+
+## Attention
+
+In a [low precision interface example](./low_precision_interface.py) there is a brief example of
+using both the configuration interface for attention and the scale_and_quantize interface and other
+parts of the Triton interface for fused attention.
 
 ## Manual method
 
