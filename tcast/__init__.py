@@ -20,6 +20,7 @@ from .torchcast import TorchCast
 from .tritoncast import TritonCast
 from .utils import (
     cdiv,
+    get_extern_libs,
     get_logger,
     is_float8_available,
     is_float8_fnuz_available,
@@ -30,16 +31,59 @@ from .utils import (
     next_power_of_2,
     printoptions,
     set_seed,
+    to_float,
+    to_string,
+    triton_fp8_support,
 )
 
 __version__ = "0.3.0"
 
 
 def initialize(
-    roundmode: RoundMode = None, scalemode: ScaleMode = None, computemode: ComputeMode = None, castmode: CastMode = None
+    roundmode: RoundMode = None,
+    scalemode: ScaleMode = None,
+    computemode: ComputeMode = None,
+    castmode: CastMode = None,
+    device: str = None,
+    precision: int = None,
+    sci_mode: bool = None,
+    logname: str = None,
+    seed: int = None,
 ) -> dict:
-    """For overriding default modes in Cast.  Optional."""
+    """For setting default modes and other .  Optional."""
+    if logname:
+        get_logger(logname, True)
+    if device is not None:
+        if device.startswith("cuda"):
+            if not torch.cuda.is_available():
+                raise RuntimeError("tcast.set_default_device: CUDA is not available")
+            dev = device.split(":")
+            if len(dev) > 1:
+                if dev[1].isdigit() and int(dev[1]) >= torch.cuda.device_count():
+                    raise ValueError(f"tcast.set_default_device: device {device} is not available")
+        elif device != "cpu":
+            raise ValueError("tcast.set_default_device: device must be 'cuda' or 'cpu'")
+        torch.set_default_device(device)
+    if precision is not None or sci_mode is not None:
+        torch.set_printoptions(precision=precision, sci_mode=sci_mode)
+    if seed is not None:
+        set_seed(seed)
+    get_extern_libs()
     return Modes.set_modes(roundmode, scalemode, computemode, castmode)
+
+
+def set_defaults(device: str = "cuda", precision: int = 8, logname: str = "tcast") -> None:
+    """Set the default device for all tensor creation."""
+    if device.startswith("cuda"):
+        if not torch.cuda.is_available():
+            raise RuntimeError("tcast.set_default_device: CUDA is not available")
+        dev = device.split(":")
+        if len(dev) > 1:
+            if dev[1].isdigit() and int(dev[1]) >= torch.cuda.device_count():
+                raise ValueError(f"tcast.set_default_device: device {device} is not available")
+    elif device != "cpu":
+        raise ValueError("tcast.set_default_device: device must be 'cuda' or 'cpu'")
+    torch.set_default_device(device)
 
 
 #####
@@ -51,21 +95,25 @@ def initialize(
 ### unscaled
 
 # torch tensor dtypes
-float32 = DataType(name="float32")
-float16 = DataType(name="float16")
-bfloat16 = DataType(name="bfloat16")
-float8_e5m2 = DataType("float8_e5m2")
-float8_e4m3fn = DataType("float8_e4m3fn")
-float8_e5m2fnuz = DataType("float8_e5m2fnuz")
-float8_e4m3fnuz = DataType("float8_e4m3fnuz")
+float32 = DataType(name=("e8m23", "float32"))
+float16 = DataType(name=("e5m10", "float16"))
+bfloat16 = DataType(name=("e7m8", "bfloat16"))
+float8_e5m2 = bf8 = e5m2fn = DataType(name=("e5m2", "bf8", "float8_5m2"))
+float8_e4m3fn = fp8 = e4m3fn = DataType(name=("e4m3fn", "fp8", "float8_e4m3fn"))
+float8_e5m2fnuz = bf8n = e5m2fnuz = DataType(name=("e5m2fnuz", "bf8n", "float8_5m2fnuz"))
+float8_e4m3fnuz = fp8n = e4m3fnuz = DataType(name=("e4m3fnuz", "fp8n", "float8_e4m3fnuz"))
 
-# OCP 8-bit unscaled datatypes
-bf8 = e5m2 = float8_e5m2
-fp8 = e4m3fn = float8_e4m3fn
+# (aliased) OCP 8-bit unscaled datatypes
+bf8 = DataType(name="e5m2")
+e5m2 = DataType(name="e5m2")
+fp8 = DataType(name="e4m3fn")
+e4m3fn = DataType(name="e4m3fn")
 
-# MI300 8-bit unscaled nanoo datatypes
-bf8n = e5m2fnuz = float8_e5m2fnuz
-fp4n = e4m3fnuz = float8_e4m3fnuz
+# (aliased) MI300 8-bit unscaled nanoo datatypes
+bf8n = DataType("float8_e5m2fnuz")
+e5m2fnuz = DataType("float8_e5m2fnuz")
+fp8n = DataType("float8_e4m3fnuz")
+e4m3fnuz = DataType("float8_e4m3fnuz")
 
 # IEEE P3109 8-bit unscaled datatypes
 binary8p1 = DataType("e7m0b63inuz", name="binary8p1")
@@ -162,7 +210,10 @@ fp8n_ec = DataType("e4m3fnuz", "e8m0_t0", "fp8n_ec")
 
 fp8nF32s = DataType("e4m3fnuz", "float32_t32_t32", "fp8nF32s")
 fp8nf32s = DataType("e4m3fnuz", "float16_t32_t32", "fp8nf32s")
-bf8nbt32s = DataType("e5m2fnuz", "bfloat16_t16_t16", "bf8nbt32s")
+bf8nbt32s = DataType("e5m2fnuz", "bfloat16_t16_t16", "bf8nb32s")
+fp8F32s = DataType("e4m3fn", "float32_t32_t32", "fp8F32s")
+fp8f32s = DataType("e4m3fn", "float16_t32_t32", "fp8f32s")
+bf8bt32s = DataType("e5m2", "bfloat16_t16_t16", "bf8b32s")
 
 # OCP MXFP and MXINT, tile size 32
 
@@ -232,7 +283,7 @@ def scale(code: str) -> ScaleSpec:
     return ScaleSpec(code)
 
 
-def datatype(nspec: str | NumberSpec = None, sspec: str | ScaleSpec = None, name: str = None) -> DataType:
+def datatype(nspec: str | NumberSpec = None, sspec: str | ScaleSpec = None, name: str | tuple[str] = None) -> DataType:
     """Create an implicitly scaled or unscaled datatype from a number spec code."""
     return DataType(nspec, sspec, name)
 
@@ -249,11 +300,17 @@ def configuration(method: Path) -> LPConfig: ...
 def configuration(method: str) -> LPConfig: ...
 
 
+# fmt: off
 @overload
-def configuration(**method) -> LPConfig: ...
+def configuration(
+    block_size: tuple[int, int] = (0, 0), block_axes: tuple[int, int] = (0, 1), scale_dtype=None, q_dtype=None,
+    k_dtype=None, v_dtype=None, p_dtype=None, ds_dtype=None, do_dtype=None,
+    icp_qk: bool = False, icp_pv: bool = False, icp_fp32: bool = False
+) -> LPConfig: ...
+# fmt: on
 
 
-def configuration(method) -> LPConfig:
+def configuration(method: int | Path | str | dict = None, **kwargs) -> LPConfig:
     """Create an LP configuration with a code, json path, shortcut, or params."""
     if isinstance(method, int):
         return LPConfig(code=method)
@@ -261,7 +318,18 @@ def configuration(method) -> LPConfig:
         return LPConfig(json_path=method)
     if isinstance(method, str):
         return LPConfig(shortcut=method)
-    return LPConfig(**method)
+    if isinstance(method, dict):
+        return LPConfig(**method)
+    if method is None and kwargs:
+        return LPConfig(**kwargs)
+    raise TypeError("Invalid type for method")
+
+
+# Example usage
+# config1 = configuration(42)
+# config2 = configuration(Path(__file__).with_name("tests") / "config_attrs.json")
+# config3 = configuration("split_match_e4m3fnuz_e5m2fnuz_icpqk32_32x32")
+# config4 = configuration(block_size=(16, 16), scale_dtype="float32")
 
 
 def randomize_imatrix(cls, imatrix: torch.Tensor) -> torch.Tensor:
@@ -269,9 +337,11 @@ def randomize_imatrix(cls, imatrix: torch.Tensor) -> torch.Tensor:
     return LPConfig.randomize_imatrix(imatrix)
 
 
-def get_imatrix(size: int, dtype: torch.dtype = torch.float32, walsh: bool = True, randomize: bool = True) -> torch.Tensor:
-    """Create an identity matrix with optionally randomized Walsh-Hadamard rows."""
-    return LPConfig.get_imatrix(size, dtype, walsh, randomize)
+def get_imatrix(
+    size: int, dtype: str | torch.dtype = torch.float32, walsh: bool = True, randomize: bool = True, replace: bool = False
+) -> torch.Tensor:
+    """Get, create, randomize, or replace an identity matrix with optionally randomized Walsh-Hadamard rows."""
+    return LPConfig.get_imatrix(size, dtype, walsh, randomize, replace)
 
 
 logger = get_logger("tcast")
@@ -325,11 +395,7 @@ def cast(
     return tensor
 
 
-def upcast(
-    tensor: Tensor,
-    torch_dtype: torch.dtype,
-    computemode: ComputeMode | str = "triton",
-) -> torch.Tensor | Tensor:
+def upcast(tensor: Tensor, torch_dtype: torch.dtype, computemode: ComputeMode | str = "triton") -> torch.Tensor | Tensor:
     """
     Upcast from actual or compress tcast.Tensor to a virtual (unscaled) tensor of torch_dtype.
 
@@ -356,7 +422,7 @@ def upcast(
         tor_success = vtensor is not None
     assert tri_success is not None or tor_success is not None
     if vtensor is None:
-        if tri_success  == False:  # noqa: E712
+        if tri_success == False:  # noqa: E712
             raise AssertionError("tcast.upcast: datatype upcast FAILED in Triton")
         if tor_success == False:  # noqa: E712
             raise AssertionError("tcast.upcast: datatype upcast FAILED in Torch")
