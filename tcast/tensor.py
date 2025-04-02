@@ -56,7 +56,7 @@ class Tensor:
         """See if the tensor dims are not multiples of the tile scales."""
         if self.input.dim() != 2:
             raise NotImplementedError("More than 2D shapes are not supported yet.")
-        if not self.dtype.is_tile or not self.dtype.is_2d or self.dtype.is_sparse:
+        if not self.dtype.is_tile or self.dtype.is_2d or self.dtype.is_sparse:
             raise NotImplementedError("Only square tiles are supported.")
         tile0, tile1 = self.dtype.sspec.tile0, self.dtype.sspec.tile1
         size0, size1 = self.input.size() if not self.transpose_scale else self.input.size()[::-1]
