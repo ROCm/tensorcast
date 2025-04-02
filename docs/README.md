@@ -2,10 +2,13 @@
 
 # TensorCast Documentation
 
-The documentation for TensorCast, such that it is, is in the following files in this directory.
+> *The codebase is changing as fixes are made and testing continues, which makes the documentation lag
+behind a bit.*
+
+The documentation for TensorCast is in the following files in this directory.
 Some of these documents are complete, others barely started, the rest somewhere in between.
 
-While the attention document is not even strted yet, the slide deck for the low precision
+While the attention document is not even started yet, the slide deck for the low precision
 attention project in TensorCast is there right below.
 
 |document|topic|
@@ -21,6 +24,7 @@ attention project in TensorCast is there right below.
 |[Data Types](./datatype.md)| DataType = NumberSpec + ScaleSpec|
 |[Codebooks](./codebook.md)| Lookup table quantization, a form of number specification|
 |[Attention](./attention.md)| The attention kernel low precision API and configuration|
+|[Attention Example](./attn_example.md)| Small example of attn interface and use|
 |[Low Precision Attention](./slides.md)| Presentation on Low Precision Attention Quantization Package|
 
 ---

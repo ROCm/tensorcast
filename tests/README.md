@@ -2,24 +2,61 @@
 
 # TensorCast Testing
 
-TensorCast uses pytest in the tensorcast/tests directory.  The way it is organized is that
-the pytest decorators are in the test_\* files.  Those tests call the base tests in the base\_*
-files.  Some of the test code resides in the classes that are being tested, such as LPConfig.py
-in the tcast directory.
+> *Currently the code structure is in place, but not all of the tests have been written, and only a few of them pass.*
 
-Access to the tests can be through pytorch, ot through tensorcast/test_harness.p, the latter of
-which is a bit earlier to use for debugging underlying code that going through the pytest
-framework.
+TensorCast uses PyTest in the tensorcast/tests directory.
 
-In some cases, other libraries are used to sanity check tcast triton.  In test_mx.py, the
-tests compare the results of the MX (microxcaling) library from Microsoft to the results of
-tcast.  In test_torch_virtual.py, all virtual castmode tests compare vs tcast branch v2. There
-might be some tests that use SQT (an earlier verion of TensorCast).  All of these cases require
-another library.  MX is easy enough to clone and use.  TensorCast v2 is harder in that two
-distinct branches are being used at the same time.  The method I used was to clone tensorcast
-elsewhere (outside my python path), then rename the tcast subdirectory to tcastv2 and copy it to
-my tensorcast clone, parallel to tcast.  SQT is problematic because it is a private repo, and
-you have to get permission, so I am waiting a bit on that.
+## Interfaces to Test Code
+
+### PyTest
+
+For automation purposes, we use PyTest with the test functions in the tensorcast/tests directory.
+The test_*purpose*.py files contain the top level tests, which are `@pytest.mark.parametrize`
+decorators and a wrapper, which call functions in one of the base test files, also in the tests directory.
+
+### `test_harness.py`
+
+An alternative to PyTest is the tensorcast/test_harness.py, which bypasses the PyTest test functions
+and calls the base functions directly.  It provides a simpler debug interface.
+
+### Direct Invocation
+
+The base functions can be called from any Python function.  Some of the test code resides in the
+source classes in `tcast` such as in [LPConfig](../tcast/lpconfig.py).
+
+## Test Organization
+
+At the top level, we test the [TorchCast](../tcast/torchcast.py) quantization capabilities against
+other tools that are believed to be valid for *virtual* cast.  The test\* files are organized by
+the functionality we are testing (TritonCast; TorchCast;
+configuration and other miscellaneous areas; Triton snippets; and attention-specific testing.  The
+base\* files are organized by the packages we are testing against:
+
+- PyTorch, which has direct cast with round nearest, ties to even, for four fp8 datatypes.  This is
+a quick and easy method for comparing pre-scaled fp8 *virtual* quantization.
+- Microxcaling (MX), from Microsoft, for MXFP and some other datatypes.
+- TensorCast v2 branch, which is stable for *virtual* cast and has most of the features in
+progress on this triton branch.
+- TorchCast and TritonCast *virtual* cast modes.
+- TritonCast *virtual* as a comparison to TritonCast *actual* and *compress* modes (which are
+subsequently upcast and deconpressed to enable a direct comparison).
+
+Another possibile validation library is `SQT`, but it may not be necessary. Somewhat more likely is
+custom code and tensors to cover special cases.
+
+TensorCast quantization in the triton branch can be verified against custom code, tcast v2 branch,
+Microxcaling library ("mx"), PyTorch direct cast, Triton direct cast, or possibly SQT.  The
+TritonCast engine in tcast can be verified against the TorchCast engine. In each of these cases,
+the vefification can only be done where there are compatible functionality (e.g. TorchCast
+only has *virtual* compute mode, PyTorch only has *even* round mode, and Microxcaling only has
+the *floor* method of scale selection.
+
+Some of these (mx, sqt, v2) require special installation.  Microsoft's Microxcaling library
+simply has to be installed.  SQT is a private AMD repo, so permission has to come from one
+of the contributors [@alirezak](mailto:alireza.khodamoradi@amd.com) or
+[@ericd](mailto:eric.dellinger@amd.com).  The v2 branch of TensorCast has to be handled
+in a different way, since two versions of the same package are being used side by side. The
+tcast unit tests assume it is installed and can be imported as `tcastv2`.
 
 This document is organized as follows:
 
@@ -202,6 +239,8 @@ codebooks.
 
 ---
 
-[Documentation](.docs/README.md)
+[Functional Status](./status.md)
+</br>
+[Documentation](../docs/README.md)
 </br>
 [TensorCast Home](../README.md)

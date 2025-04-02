@@ -3,8 +3,7 @@
 # TensorCast (tcast)
 
 > This is the *triton* branch of TensorCast which recently started to be populated (3/3/25).
-> For working code, use the v2 branch for now.  This branch will ***begin*** to be functional
-> no later than 3/21/25.
+> For working code, use the v2 branch for now.
 
 TensorCast is an open source PyTorch casting/quantization library. It is based on PyTorch 2.5+
 and Triton 3.3+.
@@ -29,6 +28,13 @@ We attempt to keep things simple, but the high degree of customization can intro
 at times.  We welcome feedback (and direct contribution) that will help us improve this package.
 
 ## Status Updates
+
+### 4/2/25
+
+- got scale_and_quantize (an everything it uses) working in interpreter mode
+- the test structure is nearly in place, with the key priorities implemented
+- more partial implementations
+- lots of bug fixes, less insanity
 
 ### 3/18/25
 
@@ -81,6 +87,8 @@ in the tensorcast/docs directory.  :red_circle: indicates not done, :green_circl
 :yellow_circle: modes.md: settings for rounding, scale selection, compute, and casting
 
 :green_circle: shapes.md: describes the `tcast.Tensor` class
+
+:green_circle: tests/README.md: describes the unit testing scope and priorities
 
 ### `tcast` Code
 
