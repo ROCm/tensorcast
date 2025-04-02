@@ -16,7 +16,7 @@ logger = logging.getLogger(f"tcast.{__name__}")
 
 EPS = torch.finfo(torch.float32).smallest_normal
 STD_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
-FP8_DTYPES = (torch.float8e4m3fn, torch.float8_e4m3fnuz, torch.float8_e5m2, torch.float8_e5m2fnuz)
+FP8_DTYPES = (torch.float8_e4m3fn, torch.float8_e4m3fnuz, torch.float8_e5m2, torch.float8_e5m2fnuz)
 
 
 class RoundMode(Enum):
