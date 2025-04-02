@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# tcast/snippets.py: triton methods for cconfiguration and casting
+# tcast/snippets.py: triton methods for configuration and casting
 # SPDX-License-Identifier: MIT
 # ruff: noqa: D103
 
@@ -7,172 +7,147 @@
 
 import triton
 import triton.language as tl
+from triton.language.extra import libdevice
 
-# these encode the configuration in a 32-bit integer
-# first 8 bits are the block size and axes
-LP_SIZE_POS: tl.constexpr = 0
-LP_SQUARE_POS: tl.constexpr = 3
-LP_AXIS0_POS: tl.constexpr = 4
-LP_AXIS1_POS: tl.constexpr = 6
+# these encode the configuration in a 64-bit integer
+SIZE_POS = tl.constexpr(0)
+SQUARE_POS = tl.constexpr(3)
+FP8_TYPE_POS = tl.constexpr(4)
 # next 4 bits are the scale type
-LP_SCALE_POS: tl.constexpr = 8
+SCALE_POS = tl.constexpr(8)
 # next 18 bits are the datatypes for q (act), k (weight), v, p, do, ds
-LP_Q_POS: tl.constexpr = 11
-LP_K_POS: tl.constexpr = 14
-LP_V_POS: tl.constexpr = 17
-LP_P_POS: tl.constexpr = 20
-LP_DO_POS: tl.constexpr = 23
-LP_DS_POS: tl.constexpr = 26
+Q_POS = tl.constexpr(11)
+K_POS = tl.constexpr(14)
+V_POS = tl.constexpr(17)
+P_POS = tl.constexpr(20)
+DO_POS = tl.constexpr(23)
+DS_POS = tl.constexpr(26)
 # next 2 bits are the icp flags
-LP_ICP_QK_POS: tl.constexpr = 29
-LP_ICP_PV_POS: tl.constexpr = 30
-LP_ICP_FP32_POS: tl.constexpr = 31
+ICP_QK_POS = tl.constexpr(29)
+ICP_PV_POS = tl.constexpr(30)
+ICP_FP32_POS = tl.constexpr(31)
 # now we are headed for 64 bits...
-LP_SCALEMODE_POS: tl.constexpr = 32  # 3 bits, FLOOR, CEIL, MIDMAX, OPTION3, TOPBINADE
-LP_ROUNDMODE_POS: tl.constexpr = 35  # 2 bits, ZERO, AWAY, EVEN, STOCHASTIC
-LP_CASTMODE_POS: tl.constexpr = 37  # 2 bits, VIRTUAL, ACTUAL, COMPRESSED
+SCALEMODE_POS = tl.constexpr(32)  # 3 bits, FLOOR, CEIL, MIDMAX, OPTION3, TOPBINADE
+ROUNDMODE_POS = tl.constexpr(35)  # 2 bits, ZERO, AWAY, EVEN, STOCHASTIC
+CASTMODE_POS = tl.constexpr(37)  # 2 bits, VIRTUAL, ACTUAL, COMPRESSED
+AXIS0_POS = tl.constexpr(39)
+AXIS1_POS = tl.constexpr(41)
 # these are the masks for the configuration
-LP_SIZE_MASK: tl.constexpr = 0x7
-LP_AXIS_MASK: tl.constexpr = 0x3
-LP_SQUARE_MASK: tl.constexpr = 0x1
-LP_SCALE_MASK: tl.constexpr = 0x7
-LP_TENSOR_MASK: tl.constexpr = 0x7
-LP_ICP_MASK: tl.constexpr = 0x1
-LP_ROUNDMODE_MASK: tl.constexpr = 0x3
-LP_SCALEMODE_MASK: tl.constexpr = 0x7
-LP_CASTMODE_MASK: tl.constexpr = 0x3
+SIZE_MASK = tl.constexpr(7)
+FP8_TYPE_MASK = tl.constexpr(15)
+AXIS_MASK = tl.constexpr(3)
+SQUARE_MASK = tl.constexpr(1)
+SCALE_MASK = tl.constexpr(7)
+TENSOR_MASK = tl.constexpr(7)
+ICP_MASK = tl.constexpr(1)
+ROUNDMODE_MASK = tl.constexpr(3)
+SCALEMODE_MASK = tl.constexpr(7)
+CASTMODE_MASK = tl.constexpr(3)
 # these are the indices for the tensors to be quantized
-LP_Q_INDEX: tl.constexpr = 0
-LP_K_INDEX: tl.constexpr = 1
-LP_V_INDEX: tl.constexpr = 2
-LP_P_INDEX: tl.constexpr = 3
-LP_DO_INDEX: tl.constexpr = 4
-LP_DS_INDEX: tl.constexpr = 5
-LP_ACT_INDEX: tl.constexpr = 0
-LP_WEIGHT_INDEX: tl.constexpr = 1
+Q_INDEX = tl.constexpr(0)
+K_INDEX = tl.constexpr(1)
+V_INDEX = tl.constexpr(2)
+P_INDEX = tl.constexpr(3)
+DO_INDEX = tl.constexpr(4)
+DS_INDEX = tl.constexpr(5)
+ACT_INDEX = tl.constexpr(0)
+WEIGHT_INDEX = tl.constexpr(1)
 # roundmode
-LP_RMODE_ZERO: tl.constexpr = 0
-LP_RMODE_AWAY: tl.constexpr = 1
-LP_RMODE_EVEN: tl.constexpr = 2
-LP_RMODE_STOCHASTIC: tl.constexpr = 3
+RMODE_ZERO = tl.constexpr(0)
+RMODE_AWAY = tl.constexpr(1)
+RMODE_EVEN = tl.constexpr(2)
+RMODE_STOCHASTIC = tl.constexpr(3)
 # scalemode
-LP_SMODE_FLOOR: tl.constexpr = 0
-LP_SMODE_CEIL: tl.constexpr = 1
-LP_SMODE_MIDMAX: tl.constexpr = 2
-LP_SMODE_OPTION3: tl.constexpr = 3
-LP_SMODE_TOPBINADE: tl.constexpr = 4
+SMODE_FLOOR = tl.constexpr(0)
+SMODE_CEIL = tl.constexpr(1)
+SMODE_MIDMAX = tl.constexpr(2)
+SMODE_OPTION3 = tl.constexpr(3)
+SMODE_TOPBINADE = tl.constexpr(4)
 # castmode
-LP_CMODE_VIRTUAL: tl.constexpr = 0
-LP_CMODE_ACTUAL: tl.constexpr = 1
-LP_CMODE_COMPRESSED: tl.constexpr = 2
+CMODE_VIRTUAL = tl.constexpr(0)
+CMODE_ACTUAL = tl.constexpr(1)
+CMODE_COMPRESSED = tl.constexpr(2)
 # scale types: these are the dtypes containing the scales; None means we use the input tensor type as the scale type
-LP_STYPE_MATCH: tl.constexpr = 0
-LP_STYPE_FP32: tl.constexpr = 1
-LP_STYPE_FP16: tl.constexpr = 2
-LP_STYPE_BF16: tl.constexpr = 3
-LP_STYPE_E8M0: tl.constexpr = 4
-LP_STYPE_E5M3: tl.constexpr = 5
-LP_STYPE_TLTYPE: tl.constexpr = [tl.float32, tl.float16, tl.bfloat16, tl.uint8, tl.uint8]
+STYPE_MATCH = tl.constexpr(0)
+STYPE_FP32 = tl.constexpr(1)
+STYPE_FP16 = tl.constexpr(2)
+STYPE_BF16 = tl.constexpr(3)
+STYPE_E8M0 = tl.constexpr(4)
+STYPE_E5M3 = tl.constexpr(5)
+STYPE_TLTYPE = ("fp32", "fp16", "bf16", "u8", "u8")
 # quant types: these are the actual dtypes we are casting to; fp6 uses fp8e4, fp4 uses uint8 (2 packed values per uint8)
 # None means we do not quantize at all
-LP_QUANT_NONE: tl.constexpr = 0
-LP_QUANT_E5M2: tl.constexpr = 1
-LP_QUANT_E5M2B16: tl.constexpr = 2
-LP_QUANT_E4M3FN: tl.constexpr = 3
-LP_QUANT_E4M3FNUZ: tl.constexpr = 4
-LP_QUANT_E3M2FNUZ: tl.constexpr = 5
-LP_QUANT_E2M3FNUZ: tl.constexpr = 6
-LP_QUANT_E2M1FNUZ: tl.constexpr = 7
-LP_QUANT_TLTYPE: tl.constexpr = [
-    tl.float8e5, tl.float8e5b16, tl.float8e4nv, tl.float8e4b8, tl.float8e4nv, tl.float8e4nv, tl.float8e4nv
-]
+QUANT_NONE = tl.constexpr(0)
+QUANT_E5M2 = tl.constexpr(1)
+QUANT_E5M2B16 = tl.constexpr(2)
+QUANT_E4M3FN = tl.constexpr(3)
+QUANT_E4M3FNUZ = tl.constexpr(4)
+QUANT_E3M2FNUZ = tl.constexpr(5)
+QUANT_E2M3FNUZ = tl.constexpr(6)
+QUANT_E2M1FNUZ = tl.constexpr(7)
+QUANT_TLTYPE = ("fp8e5", "fp8e5b16", "fp8e4nv", "fp8e4b8")
 
 
 # these functions use the constants above to extract the configuration
 # fmt: off
 @triton.jit
-def lp_enabled(LPCODE: tl.constexpr) -> tl.constexpr: return LPCODE != 0
+def enabled(LPCODE: tl.constexpr) -> bool: return LPCODE.value != 0
 @triton.jit
-def lp_get_size(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> LP_SIZE_POS) & LP_SIZE_MASK
+def shift_mask(LPCODE: tl.constexpr, POS: tl.constexpr, MASK: tl.constexpr): return LPCODE.value >> POS.value & MASK.value
 @triton.jit
-def lp_is_square(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> LP_SQUARE_POS) & LP_SQUARE_MASK
+def fp8_code(LPCODE: tl.constexpr) -> int: return shift_mask(LPCODE, FP8_TYPE_POS, FP8_TYPE_MASK)
 @triton.jit
-def lp_quant_code(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tl.constexpr:
-    tl.static_assert(TCODE < 6)
-    return (LPCODE >> (LP_Q_POS + TCODE * 3)) & LP_TENSOR_MASK
-@triton.jit # do we quantize this tensor?
-def lp_do_quant(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tl.constexpr: return lp_quant_code(LPCODE, TCODE) != 0
+def fp8_supported(LPCODE: tl.constexpr, NCODE) -> bool: return (fp8_code(LPCODE) & (1 << NCODE - 1 != 0)) != 0
 @triton.jit
-def lp_number_mxfp(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tl.constexpr: return lp_quant_code(LPCODE, TCODE) > 4
+def get_size(LPCODE: tl.constexpr) -> int: return (LPCODE >> SIZE_POS) & SIZE_MASK
 @triton.jit
-def lp_q_code(LPCODE: tl.constexpr) -> tl.constexpr: return lp_quant_code(LPCODE, LP_Q_INDEX)
+def is_square(LPCODE: tl.constexpr) -> int: return (LPCODE >> SQUARE_POS) & SQUARE_MASK
 @triton.jit
-def lp_k_code(LPCODE: tl.constexpr) -> tl.constexpr: return lp_quant_code(LPCODE, LP_K_INDEX)
+def quant_pos(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> int: return (Q_POS, K_POS, V_POS, P_POS, DO_POS, DS_POS)[TCODE]
 @triton.jit
-def lp_v_code(LPCODE: tl.constexpr) -> tl.constexpr: return lp_quant_code(LPCODE, LP_V_INDEX)
+def quant_code(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> int: return shift_mask(LPCODE, quant_pos(LPCODE, TCODE), TENSOR_MASK)
 @triton.jit
-def lp_p_code(LPCODE: tl.constexpr) -> tl.constexpr: return lp_quant_code(LPCODE, LP_P_INDEX)
+def needs_quant(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> bool: return quant_code(LPCODE, TCODE) != 0
 @triton.jit
-def lp_do_code(LPCODE: tl.constexpr) -> tl.constexpr: return lp_quant_code(LPCODE, LP_DO_INDEX)
+def number_mxfp(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> bool: return quant_code(LPCODE, TCODE) > 4
 @triton.jit
-def lp_ds_code(LPCODE: tl.constexpr) -> tl.constexpr: return lp_quant_code(LPCODE, LP_DS_INDEX)
-# incoherence processing flags
+def q_code(LPCODE: tl.constexpr) -> int: return quant_code(LPCODE, Q_INDEX)
 @triton.jit
-def lp_icp_qk(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> LP_ICP_QK_POS) & LP_ICP_MASK
+def k_code(LPCODE: tl.constexpr) -> int: return quant_code(LPCODE, K_INDEX)
 @triton.jit
-def lp_icp_pv(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> LP_ICP_PV_POS) & LP_ICP_MASK
+def v_code(LPCODE: tl.constexpr) -> int: return quant_code(LPCODE, V_INDEX)
 @triton.jit
-def lp_icp_fp32(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> LP_ICP_FP32_POS) & LP_ICP_MASK
+def p_code(LPCODE: tl.constexpr) -> int: return quant_code(LPCODE, P_INDEX)
 @triton.jit
-def lp_needs_icp(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tl.constexpr:
-    is_qkds = TCODE in (LP_Q_INDEX, LP_K_INDEX, LP_DS_INDEX)
-    return lp_icp_qk(LPCODE) and is_qkds or lp_icp_pv(LPCODE) and not is_qkds
+def do_code(LPCODE: tl.constexpr) -> int: return quant_code(LPCODE, DO_INDEX)
 @triton.jit
-def lp_act_code(LPCODE: tl.constexpr) -> tl.constexpr: return lp_q_code(LPCODE)
+def ds_code(LPCODE: tl.constexpr) -> int: return quant_code(LPCODE, DS_INDEX)
 @triton.jit
-def lp_weight_code(LPCODE: tl.constexpr) -> tl.constexpr: return lp_k_code(LPCODE)
+def icp_qk(LPCODE: tl.constexpr) -> bool: return shift_mask(LPCODE, ICP_QK_POS, ICP_MASK) != 0
 @triton.jit
-def lp_roundmode(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> LP_ROUNDMODE_POS) & LP_ROUNDMODE_MASK
+def icp_pv(LPCODE: tl.constexpr) -> bool: return shift_mask(LPCODE, ICP_PV_POS, ICP_MASK) != 0
 @triton.jit
-def lp_scalemode(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> LP_SCALEMODE_POS) & LP_SCALEMODE_MASK
+def icp_fp32(LPCODE: tl.constexpr) -> bool: return shift_mask(LPCODE, ICP_FP32_POS, ICP_MASK) == 0
 @triton.jit
-def lp_castmode(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> LP_CASTMODE_POS) & LP_CASTMODE_MASK
-
-# scale type functions
+def act_code(LPCODE: tl.constexpr) -> int: return q_code(LPCODE)
 @triton.jit
-def lp_scale_code(LPCODE: tl.constexpr) -> tl.constexpr: return (LPCODE >> LP_SCALE_POS) & LP_SCALE_MASK
+def weight_code(LPCODE: tl.constexpr) -> int: return k_code(LPCODE)
 @triton.jit
-def lp_match_scale_to_input(LPCODE: tl.constexpr, ) -> tl.constexpr: return lp_scale_code(LPCODE) == 0
+def roundmode(LPCODE: tl.constexpr) -> int: return shift_mask(LPCODE, ROUNDMODE_POS, ROUNDMODE_MASK)
 @triton.jit
-def lp_scale_is_fp32(LPCODE: tl.constexpr) -> tl.constexpr: return lp_scale_code(LPCODE) == 1
+def roundeven(LPCODE: tl.constexpr) -> int: return roundmode(LPCODE) == int(RMODE_EVEN)
 @triton.jit
-def lp_scale_is_fp16(LPCODE: tl.constexpr) -> tl.constexpr: return lp_scale_code(LPCODE) == 2
+def scalemode(LPCODE: tl.constexpr) -> int: return shift_mask(LPCODE, SCALEMODE_POS, SCALEMODE_MASK)
 @triton.jit
-def lp_scale_is_bf16(LPCODE: tl.constexpr) -> tl.constexpr: return lp_scale_code(LPCODE) == 3
+def castmode(LPCODE: tl.constexpr) -> int: return shift_mask(LPCODE, CASTMODE_POS, CASTMODE_MASK)
 @triton.jit
-def lp_scale_is_exponent(LPCODE: tl.constexpr) -> tl.constexpr: return lp_scale_code(LPCODE) == 4
-# fmt: on
-
-
+def virtual(LPCODE: tl.constexpr) -> int: return castmode(LPCODE) == int(CMODE_VIRTUAL)
 @triton.jit
-def lp_scale_dtype(LPCODE: tl.constexpr, dtype=None) -> tl.constexpr:
-    t = lp_scale_code(LPCODE)
-    tl.static_assert(t < 5)
-    tl.device_assert((dtype is None) != (t == 0))
-    if t == LP_STYPE_MATCH:
-        return dtype
-    return LP_STYPE_TLTYPE[t-1]
-
+def scale_code(LPCODE: tl.constexpr): return shift_mask(LPCODE, SCALE_POS, SCALE_MASK)
 @triton.jit
-def lp_quant_dtype(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tl.constexpr:
-    t = lp_quant_code(LPCODE, TCODE)
-    if t == LP_QUANT_NONE:
-        return None
-    return LP_QUANT_TLTYPE[t-1]
-
-
-# bit cast functions
-# fmt: off
+def scale_is_exponent(LPCODE: tl.constexpr) -> bool: return scale_code(LPCODE) == int(STYPE_E8M0)
+@triton.jit
+def get_triton_dtype(name: str) -> tl.core.dtype: return tl.str_to_ty(name)
 @triton.jit
 def as_float(x): return tl.cast(x, tl.float32, bitcast=True)
 @triton.jit
@@ -184,171 +159,183 @@ def as_uint8(x): return tl.cast(x, tl.uint8, bitcast=True)
 @triton.jit
 def as_type(x, dtype): return tl.cast(x, dtype, bitcast=True)
 
-# number format information
 @triton.jit
-def lp_number_mbits(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tl.constexpr:
-    return (2., 2., 3., 3., 2., 3., 1.)[lp_quant_code(LPCODE, TCODE-1)]
+def number_mbits(NCODE) -> int:
+    return (2, 2, 3, 3, 2, 3, 1)[NCODE-1]
 @triton.jit
-def lp_number_ebits(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tl.constexpr:
-    return (5., 5., 4., 4., 3., 2., 2.)[lp_quant_code(LPCODE, TCODE-1)]
+def number_ebits(NCODE) -> int:
+    return (5, 5, 4, 4, 3, 2, 2)[NCODE-1]
 @triton.jit
-def lp_number_emax(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tl.constexpr:
-    return (15., 15., 8., 7., 4., 2., 2.)[lp_quant_code(LPCODE, TCODE-1)]
+def number_emax(NCODE) -> int:
+    return (15, 15, 8, 7, 4, 2, 2)[NCODE-1]
 @triton.jit
-def lp_number_emin(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tl.constexpr:
-    return (-14., -15., -6., -7., -2., 0., 0.)[lp_quant_code(LPCODE, TCODE-1)]
+def number_emin(NCODE) -> int:
+    return (-14, -15, -6, -7, -2, 0, 0)[NCODE-1]
 @triton.jit
-def lp_number_maxval(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tl.constexpr:
-    return (57344., 57344., 448., 240., 28., 7.5, 6.)[lp_quant_code(LPCODE, TCODE-1)]
+def number_maxfloat(NCODE) -> float:
+    return (57344., 57344., 448., 240., 28., 7.5, 6.)[NCODE-1]
 @triton.jit
-def lp_number_midmax(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tl.constexpr:
-    return (61440., 61440., 480., 248., 28., 7.75, 7.)[lp_quant_code(LPCODE, TCODE-1)]
+def number_midmax(NCODE) -> float:
+    return (61440., 61440., 480., 248., 28., 7.75, 7.)[NCODE-1]
+
 # fmt: on
+@triton.jit
+def needs_icp(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> bool:
+    if (((TCODE == Q_INDEX) or (TCODE == K_INDEX)) or (TCODE == DS_INDEX)) and icp_qk(LPCODE):
+        return True
+    if (((TCODE == P_INDEX) or (TCODE == V_INDEX)) or (TCODE == DO_INDEX)) and icp_pv(LPCODE):
+        return True
+    return False
 
 
 @triton.jit
-def get_exponent(x):
-    """Get the exponent of a float."""
-    tl.device_assert(x.dtype == tl.float32)
-    return (as_uint(x) >> 23) & 0xFF
+def needs_quant_or_icp(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tuple[bool, bool]:
+    dq = needs_quant(LPCODE, TCODE)
+    di = needs_icp(LPCODE, TCODE)
+    return dq or di, dq, di
 
 
 @triton.jit
-def modify_exponent(x, y, direction: int = 0):
-    """Modify the exponent of a float. direction is 1 for add, -1 for subtract, 0 for replace."""
-    tl.device_assert(x.dtype == tl.float32)
+def scale_dtype(LPCODE: tl.constexpr, xtype: tl.core.dtype) -> tl.core.dtype:
+    NCODE = scale_code(LPCODE)
+    if NCODE == STYPE_MATCH:
+        return xtype
+    return get_triton_dtype(STYPE_TLTYPE[NCODE - 1])
+
+
+@triton.jit
+def quant_dtype(LPCODE: tl.constexpr, TCODE: tl.constexpr) -> tl.constexpr:
+    # compute dtype, must be supported on hardware backend
+    NCODE = quant_code(LPCODE, TCODE)
+    return get_triton_dtype(QUANT_TLTYPE[NCODE - 1])
+
+
+@triton.jit
+def get_exponent(x, unbiased: bool = True):
+    """Get the exponent of a float, returned as int32."""
+    if x.dtype != tl.uint32:
+        tl.device_assert(x.dtype == tl.float32, "get_exponent input must be fp32 or uint32")
+        x = as_uint(x)
+    return ((x >> 23) & 0xFF).to(tl.int32) - (127 * int(unbiased))
+
+
+@triton.jit
+def modify_exponent(x, y, replace: bool = False):
+    """Modify the exponent of a float. dir is 1 for add, -1 for subtract, 0 for replace."""
+    # y is unbiased exponent or exponent offest, type int32
+    tl.device_assert(x.dtype == tl.float32 or x.dtype == tl.uint32, "modify_exponent input must be fp32 or uint32")
     x = as_uint(x)
-    if direction == 0:
-        x = tl.where(get_exponent(x) == 0, 0, x & 0x807FFFFF | (y << 23))
-    elif direction == 1:
-        if y >= 127:
-            x = tl.where(get_exponent(x) == 0, 0, x + ((y - 127) << 23))
-        else:
-            x = tl.where(get_exponent(x) == 0, 0, x - ((127 - y) << 23))
+    # get biased exponents to check for special case of 0
+    xexp = get_exponent(x, unbiased=False)
+    mask = xexp == 0
+    if replace:
+        xexp = y + 127
     else:
-        if y >= 127:
-            x = tl.where(get_exponent(x) == 0, 0, x - ((y - 127) << 23))
-        else:
-            x = tl.where(get_exponent(x) == 0, 0, x + ((127 - y) << 23))
-    return as_float(x)
+        xexp += y
+    return as_float(tl.where(mask, 0, x & 0x807FFFFF | (xexp << 23)))
 
 
 @triton.jit
-def round(x: tl.tensor, roundmode, seed=19, offset=0) -> tl.tensor:
+def round(x: tl.tensor, rmode, seed=19, offset=0) -> tl.tensor:
     """Round floating point."""
-    if roundmode == LP_RMODE_STOCHASTIC:
+    if rmode == RMODE_STOCHASTIC:
         rand_ptr = tl.randn(seed, offset)
-        return tl.libdevice.trunc(x + tl.where(x < 0, -rand_ptr), rand_ptr)
-    if roundmode == LP_RMODE_EVEN:
-        return tl.libdevice.rint(x)
-    if roundmode == LP_RMODE_AWAY:
-        return tl.libdevice.round(x)
-    if roundmode == LP_RMODE_ZERO:
-        trunc = tl.libdevice.trunc(x)
-        return tl.where(x - trunc == 0.5, trunc, tl.libdevice.round(x))
+        return libdevice.trunc(x + tl.where(x < 0, -rand_ptr), rand_ptr)
+    if rmode == RMODE_EVEN:
+        return libdevice.rint(x)
+    if rmode == RMODE_AWAY:
+        return libdevice.round(x)
+    if rmode == RMODE_ZERO:
+        trunc = libdevice.trunc(x)
+        return tl.where(x - trunc == 0.5, trunc, libdevice.round(x))
 
 
 USE_ROUND: tl.constexpr = False
 
-# mapping fp4 in fp32 to int4 (keep for later)
-# also, quant to e4m3fn: fake quant fp4 to fp32, cast to fp8, bitcast to uint8
-# then... ((x>>4) & c) | ((x >> 2) & 3) packs it into 4 bits
-# but the denorm is 0 or -0, so we need to handle that
-# where x != 0 and  (q & 7) == 0, q | 1 : q
-# then pack with 1 0 3 2 5 4 7 6...
-# for fp32 direct, we need the sign bit, then max(exponent - 126, 0)
-# ((x >> 28) & 0x4) | (max(126, ((x >> 23) & 0x7f) - 126) << 1) | (x >> 23) & 1
-# we want bits 30:22 259
-# sign is f32 >> 30 << 3
-# 6.0 exp 129 mant 1 uint4 0 11 1 in e4m3fn it is   0x4c -> 0x7
-# 4.0 exp 129 mant 0 uint4 0 11 0                   0x48 -> 0x6
-# 3.0 exp 128 mant 1 uint4 0 10 1                   0x44
-# 2.0 exp 128 mant 0 uint4 0 10 0                   0x40
-# 1.5 exp 127 mant 1 uint4 0 01 1                   0x3c
-# 1.0 exp 127 mant 0 uint4 0 01 0                   0x38
-# 0.5 exp 126 mant 0 uint4 0 00 1                   0x34
-# 0.0 exp 0 mant 0   uint4 0 00 0                   0x30
 
 @triton.jit
-def quantize_float(
-    x, scale, shared_exp, LPCODE: tl.constexpr, TCODE: tl.constexpr, seed=19, offset=0, roundmode=None, clip=True
-):
+def quantize_float(x, scale, LPCODE: tl.constexpr, TCODE: tl.constexpr, seed=19, offset=0, rmode=None, clip=True):
     """Quantize the float values with a float or exponent scale (OCP MX biased)."""
-    tl.static_assert(lp_enabled(LPCODE) and lp_do_quant(LPCODE, TCODE))
-    if roundmode is None:
-        roundmode = lp_roundmode(LPCODE)
+    # If float-scaled, the shared_exponent will be EMAX of the target dtype.
+    tl.static_assert(enabled(LPCODE) and needs_quant(LPCODE, TCODE))
+    if rmode is None:
+        rmode = roundmode(LPCODE)
 
     # There is the input tensor triton dtype, the target dtype, and the output triton dtype.
     # For castmode == virtual, we quantize to the target dtype, but the output dtype is the input dtype.
     # For castmode == actual, we quantize to the target dtype, and the output dtype is the target dtype if
     # it exists in triton, otherwise we upcast to the output triton dtype.
     # For castmode == compress, we pack two e2m1 values into tl.uint8
-    target_code = lp_quant_code(LPCODE, TCODE)
-    input_dtype = x.type.element_ty
-    VIRTUAL = lp_castmode(LPCODE) == LP_CMODE_VIRTUAL
-    COMPRESSED = lp_castmode(LPCODE) == LP_CMODE_COMPRESSED
-    if VIRTUAL:
-        output_dtype = input_dtype
-    elif lp_castmode(LPCODE) == LP_CMODE_ACTUAL:
-        output_dtype = lp_quant_dtype(LPCODE, TCODE)
-    elif COMPRESSED and target_code == LP_QUANT_E2M1FNUZ:
+    NCODE = quant_code(LPCODE, TCODE)  # NCODE != 0 because of the assert above
+    CMODE = castmode(LPCODE)
+    PACKED = CMODE == CMODE_COMPRESSED and NCODE == QUANT_E2M1FNUZ
+    if PACKED:
         output_dtype = tl.uint8
-
-    # whether the scale is an exponent or a float, this will get us into the range of the target dtype
-    tmpscale = tl.exp2(scale) if scale.dtype.is_uint8() else scale
-    out = x * tmpscale
-
-    # If roundmode is even and the target dtype is a tl fp8, we can just cast directly using tl.cast.
-    # Otherwise we will have to do fake quantization in fp32 and then cast to the target dtype.
-
-    if roundmode == LP_RMODE_EVEN and target_code < LP_QUANT_E3M2FNUZ:
-        return tl.cast(out, lp_quant_dtype(LPCODE, TCODE)).to(output_dtype)
-
-    # do fake quantization in fp32, then go from there
-    values = tl.cast(out, tl.float32)
-    valexp = get_exponent(out)
-    rscale = tl.exp2(lp_number_mbits(LPCODE, TCODE) - tl.maximum(valexp, lp_number_emin(LPCODE, TCODE)))
-    values *= rscale # scale based on mbits to allow rounding on the rescaled values
-    if USE_ROUND:
-        values = round(values, LPCODE, roundmode, seed, offset)
+    elif CMODE == CMODE_VIRTUAL:
+        output_dtype = x.type.element_ty
     else:
-        # clunky integer method
-        EMIN = lp_number_emax(LPCODE, TCODE) + 127
-        MAXVAL: tl.constexpr = lp_number_maxval(LPCODE, TCODE)
-        MBITS: tl.constexpr = lp_number_mbits(LPCODE, TCODE)
-        values = modify_exponent(values, shared_exp, direction=-1)
-        valexp = get_exponent(values)
-        shift = tl.where(EMIN <= valexp, 0, tl.minimum(MBITS, EMIN - valexp))
-        roundbit = 1 << (23 - 1 - MBITS + shift)
+        output_dtype = quant_dtype(LPCODE, TCODE)
+
+    # quantize
+
+    MAXFLOAT = number_maxfloat(NCODE)
+    EMAX = number_emax(NCODE)
+    EMIN = number_emin(NCODE)
+    MBITS = number_mbits(NCODE)
+
+    if scale_is_exponent(LPCODE):
+        shared_exp = scale
+        scale = tl.exp2(scale)
+    else:
+        shared_exp = EMAX
+    # scale to EMAX
+    values = x.to(tl.float32)
+    if EMAX != shared_exp:
+        values = modify_exponent(as_uint(values), EMAX - shared_exp)
+    else:
+        values = x * scale
+    values = as_uint(values)
+    valexp = get_exponent(values)
+    denorm = EMIN - valexp
+    # clamp is not supported for int32?!
+    denorm = tl.where(denorm < 0, 0, tl.where(denorm > MBITS, MBITS, denorm))
+    # denorm[denorm < 0] = 0
+    # denorm[denorm > MBITS] = MBITS
+    if USE_ROUND:
+        # scale to exponent 0 (range (-2, 2)), then up to account for mbits and denorm
+        values = modify_exponent(values, (MBITS - denorm) - EMAX)
+        values = round(values, rmode, seed, offset)
+        # descale the mbits and scale up to EMAX for clamp
+        values = modify_exponent(values, EMAX - (MBITS - denorm))
+    else:
+        # bit method
+        shift = 23 - MBITS + denorm
+        roundbit = 1 << (shift - 1)
         mask = (roundbit << 1) - 1
         values = as_uint(values)
-        if roundmode == LP_RMODE_AWAY:  # ties away from zero
+        if rmode == RMODE_AWAY:  # ties away from zero
             values += roundbit
-        elif roundmode == LP_RMODE_STOCHASTIC:
-            r = tl.randint(seed, values)
-            r = r & mask
-            values += r
+        elif rmode == RMODE_STOCHASTIC:
+            values += tl.randint(seed, values) & mask
         else:
             tie = ((roundbit - 1) & values) == 0
-            if roundmode == LP_RMODE_ZERO:  # ties towards zero, not trunc
+            if rmode == RMODE_ZERO:  # ties towards zero, not trunc
                 values += tl.where(tie, 0, roundbit)
-            if roundmode == LP_RMODE_EVEN:  # ties to nearest even
+            elif rmode == RMODE_EVEN:  # ties to nearest even
                 values += tl.where(tie & (values & (roundbit << 1) == 0), 0, roundbit)
-        valexp = get_exponent(values)
-        shift = tl.where(EMIN <= valexp, 0, EMIN - valexp)
-        mask = (1 << (23 - MBITS + shift)) - 1
-        values = as_float(tl.where(shift > MBITS or valexp == 255, 0, values & ~mask))
-    values /= rscale
-    if clip:
-        values = tl.clamp(values, min=-MAXVAL, max=MAXVAL)
-    values /= rscale
+        values = values >> shift << shift
+        values = as_float(values)
+    if clip:  # always clip unless OPTION3 scale factor selection
+        values = tl.clamp(values, min=-MAXFLOAT, max=MAXFLOAT)
+
     # values remain target dtype values, will need to be unscaled for virtual cast
-    if VIRTUAL:
+    if virtual(LPCODE):
         values /= scale
-    if COMPRESSED and target_code == LP_QUANT_E2M1FNUZ:
-        values = as_uint(values.to(tl.float8e4nv))
-        ((values >> 28) & 0x4) | (max(126, ((x >> 23) & 0x7f) - 126) << 1) | (x >> 23) & 1
-        values = ((values >> 4) & 0x7) | ((values >> 2) & 3)
+    if PACKED:
+        tl.device_assert(False, "Packing not implemented yet")
+        # values = as_uint(values.to(tl.float8e5))
+        # values = ((values >> 28) & 0x4) | (max(126, ((x >> 23) & 0x7f) - 126) << 1) | (x >> 23) & 1
+        # values = ((values >> 4) & 0x7) | ((values >> 2) & 3)
     else:
         values = tl.cast(values, output_dtype)
     return values
@@ -357,65 +344,95 @@ def quantize_float(
 @triton.jit
 def get_shared_exponent(values, LPCODE: tl.constexpr, TCODE: tl.constexpr):
     """Find the shared exponent for a block of values."""
+    # shared_exp is unbiased exponent (maxexp), stored as int32
     absmax = tl.max(tl.abs(values))
-    shared_exp = get_exponent(absmax)  # shared_exp is a biased exponent
+    shared_exp = get_exponent(absmax)  # will be unbiased tl.int32
     # set the exponent of absmax to emax comparing with midmax, maxfloat, etc.
-    EMAX = lp_number_emax(LPCODE, TCODE)
-    MAXFLOAT = lp_number_maxval(LPCODE, TCODE)
-    absmax = modify_exponent(absmax, 127 + EMAX)
+    NCODE = quant_code(LPCODE, TCODE)
+    EMAX = number_emax(NCODE)
+    MAXFLOAT = number_maxfloat(NCODE)
+    absmax = modify_exponent(absmax, EMAX, replace=True)
     increment = tl.zeros_like(shared_exp)
-    scalemode = lp_scalemode(LPCODE)
-    if scalemode == LP_SMODE_CEIL:
-        increment = as_uint(tl.where(as_uint(absmax) & 0x007FFFFF != 0, 1, 0))
-    elif scalemode == LP_SMODE_MIDMAX:
-        increment = as_uint(tl.where(absmax >= lp_number_midmax(LPCODE, TCODE), 1, 0))
-    if scalemode == LP_SMODE_TOPBINADE:
-        increment = as_uint(tl.where(absmax > MAXFLOAT, 1, 0))
-    if scalemode == LP_SMODE_OPTION3:
-        EMIN = lp_number_emin(LPCODE, TCODE)
-        rounded = quantize_float(absmax, 127, EMIN, LPCODE, TCODE, 0, 0, LP_RMODE_EVEN, clip=False)
-        increment = as_uint(tl.where(get_exponent(as_uint(rounded)) != 127 + EMAX, 1, 0))
-    # returns the biased exponent, adjusted by the dtype's emax
-    shared_exp = shared_exp + increment - EMAX
+    smode = scalemode(LPCODE)
+    if smode == SMODE_CEIL:
+        increment[as_uint(absmax) & 0x007FFFFF != 0] = 1
+        # increment = as_uint(tl.where(as_uint(absmax) & 0x007FFFFF != 0, 1, 0))
+    elif smode == SMODE_MIDMAX:
+        increment[absmax >= number_midmax(NCODE)] = 1
+        # increment = as_uint(tl.where(absmax >= number_midmax(NCODE), 1, 0))
+    if smode == SMODE_TOPBINADE:
+        increment[absmax > MAXFLOAT] = 1
+        # increment = as_uint(tl.where(absmax > MAXFLOAT, 1, 0))
+    if smode == SMODE_OPTION3:
+        rounded = quantize_float(absmax, 1.0, 0, LPCODE, TCODE, 0, 0, RMODE_EVEN, clip=False)
+        increment[get_exponent(rounded) != EMAX] = 1
+        # increment = as_uint(tl.where(get_exponent(as_uint(rounded)) != EMAX, 1, 0))
+    # returns the unbiased max (or max+1) exponent
+    shared_exp = shared_exp + increment
     return shared_exp
 
 
 @triton.jit
 def apply_incoherence(x, imatrix, trans=False, use_fp32=False):
     """Applies incoherence processing to the given tensor."""
+    # trans means that the input matrix is the second input matrix to tl.dot
+    # use_fp32 means cast both the input and the incoherence matrix to fp32 before dot product
     if use_fp32:
         if trans:
-            x = tl.dot(tl.cast(imatrix, tl.float32), tl.cast(x, tl.float32)).to(x.type.element_ty)
+            out = tl.dot(imatrix.to(tl.float32), x.to(tl.float32))
         else:
-            x = tl.dot(tl.cast(x, tl.float32), tl.cast(imatrix, tl.float32)).to(x.type.element_ty)
+            out = tl.dot(x.to(tl.float32), imatrix.to(tl.float32))
     else:
+        cast_im = imatrix.to(x.type.element_ty)
         if trans:
-            x = tl.dot(tl.cast(imatrix, x.type.element_ty), x).to(x.type.element_ty)
+            out = tl.dot(cast_im, x)
         else:
-            x = tl.dot(x, tl.cast(imatrix, x.type.element_ty)).to(x.type.element_ty)
-    return x
+            out = tl.dot(x, cast_im)
+    # cast the result to the same type as x
+    return out.to(x.type.element_ty)
+
+
+@triton.jit
+def get_descale(scale_or_exponent, LPCODE: tl.constexpr, TCODE: tl.constexpr):
+    """Convert the scale into a descale float."""
+    # An exponent scale is stored as a biased uint8 that is offset by EMAX,
+    # i.e. exp_scale = shared_exp - EMAX + 127, so descale = (exp_scale - 127 + EMAX).exp2()
+    if scale_is_exponent(LPCODE):
+        return tl.exp2(scale_or_exponent + number_emax(quant_code(LPCODE, TCODE)) - 127)
+    else:
+        return 1.0 / scale_or_exponent
 
 
 @triton.jit
 def scale_and_quantize(x, imatrix, LPCODE: tl.constexpr, TCODE: tl.constexpr, seed=19, offset=0, trans=False):
     """Returns the quantized x and the scale used."""
-    if not (lp_enabled(LPCODE) and lp_do_quant(LPCODE, TCODE)):
-        return x, 1.0
-    tl.static_assert(lp_enabled(LPCODE))
-    if lp_match_scale_to_input(LPCODE):
-        stype = x.type.element_ty
-    else:
-        stype = lp_scale_dtype(LPCODE)
-    MAXVAL: tl.constexpr = lp_number_maxval(LPCODE, TCODE)
-    if lp_needs_icp(LPCODE, TCODE):
-        x = apply_incoherence(x, imatrix, trans)
+    # tl.static_assert(enabled(LPCODE))
+    if needs_icp(LPCODE, TCODE):
+        tl.device_assert(imatrix is not None)
+        x = apply_incoherence(x, imatrix, trans, icp_fp32(LPCODE))
+    stype = scale_dtype(LPCODE, x.type.element_ty)
+    if not needs_quant(LPCODE, TCODE):
+        return x, tl.cast(1.0, stype)
+    NCODE = quant_code(LPCODE, TCODE)
+    MAXFLOAT = number_maxfloat(NCODE)
+    IS_EXP = scale_is_exponent(LPCODE)
     absx = tl.abs(x)
     absmax = tl.max(absx)
-    if stype == tl.uint8:
-        shared_exp = get_shared_exponent(absx, LPCODE, TCODE)
-        scale = tl.exp2(shared_exp - 127)
+    if IS_EXP:
+        # The shared exponent is typically the exponent of the max value
+        # on one higher.  That exponent is returned here unbiased tl.int32.
+        # quantize_float will have to convert it to a float scale.
+        scale = get_shared_exponent(absx, LPCODE, TCODE)
     else:
-        shared_exp = lp_number_emax(LPCODE, TCODE)
-        scale = MAXVAL / absmax
-    out = quantize_float(x, scale, shared_exp, LPCODE, TCODE, seed=seed, offset=offset)
-    return out, scale.to(stype)
+        # The shared_exp is EMAX because the scale is computed to ensure that.
+        scale = MAXFLOAT / absmax
+    out = quantize_float(x, scale, LPCODE, TCODE, seed=seed, offset=offset)
+    # If the scale is an exponent, we need to convert the int32 shared exponent to a
+    # biased exponent, offset by EMAX, and convert to the scale type.  The descale
+    # can be acquired by calling get_descale.
+    if IS_EXP:
+        shared_exp = scale - number_emax(NCODE) + 127
+        scale = shared_exp.to(stype)
+    else:
+        scale = scale.to(stype)
+    return out, scale
