@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 import torch
 
-from .common import FP8_DTYPES, STD_DTYPES, CastMode, Modes, RoundMode, ScaleMode
+from .common import STD_DTYPES, CastMode, Modes, RoundMode, ScaleMode
 from .number import NumberSpec
 from .tensor import Tensor
 from .utils import get_logger
@@ -118,7 +118,9 @@ class TorchCast:
                 x = TorchCast.round(x / scale.clamp_min(eps)).clamp(minint, maxint) * scale
         else:
             if sspec.scale.is_exponent:
-                scale = (scale - sspec.scale.bias).exp2()
+                scale_mask = scale == 0
+                scale = (scale.float() - sspec.scale.bias).exp2()
+                scale[scale_mask] = 1.0
             elif sspec.scale.is_int:
                 scale = scale.exp2()
             x /= scale  # scale x into range of the target dtype
@@ -199,9 +201,9 @@ class TorchCast:
             Modes.cast == CastMode.VIRTUAL
             and tensor.input.dim() == 2
             and tensor.input.dtype in STD_DTYPES
-            and tensor.dtype.torch_dtype in FP8_DTYPES
-            and not tensor.needs_pad()
-            and tensor.dtype.is_square
+            # and tensor.dtype.torch_dtype in FP8_DTYPES
+            and not tensor.needs_pad
+            and not tensor.dtype.sspec.is_square
         )
 
     @staticmethod
