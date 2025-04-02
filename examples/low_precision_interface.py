@@ -149,7 +149,7 @@ def example_launch(lpconfig, shape, torch_dtype, im_dtype, outlier_prob, outlier
     # block sizes
     BLOCK_Q = lpconfig.block_size[-1]
     BLOCK_M, BLOCK_N, BLOCK_D = 64, 64, 128
-    LPCODE = lpconfig.code
+    LPCODE = lpconfig.lp_code()
 
     assert BLOCK_M % BLOCK_Q == 0, "BLOCK_M must be multiple of BLOCK_Q"
     assert BLOCK_N % BLOCK_Q == 0, "BLOCK_N must be multiple of BLOCK_Q"
