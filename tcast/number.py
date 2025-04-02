@@ -5,7 +5,6 @@
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
 
 from collections import namedtuple
-from dataclasses import dataclass
 import re
 from typing import NamedTuple
 
@@ -28,24 +27,25 @@ class Finfo(NamedTuple):
     smallest_subnormal: float
 
 
-@dataclass
 class NumberSpec:
     """Specification for an unscaled number format."""
 
-    _name: str = None
-    _torch_dtype: torch.dtype = None
-    ebits: int = None
-    mbits: int = None
-    bias: int = None
-    signed: bool = True
-    infnan: InfNaN = InfNaN.IEEE
-    finfo: Finfo = None
-    emax: int = None
-    emin: int = None
-    _bias_hack: int = 0
+    STANDARD_NAME_MAP = {}
 
     def __init__(self, code: str | torch.dtype):
         """Sets fields based on input code string, transforming the string to a canonical form."""
+        self._name: str = None
+        self._torch_dtype: torch.dtype = None
+        self.ebits: int = None
+        self.mbits: int = None
+        self.bias: int = None
+        self.signed: bool = True
+        self.infnan: InfNaN = InfNaN.IEEE
+        self.finfo: Finfo = None
+        self.emax: int = None
+        self.emin: int = None
+        self._bias_hack: int = 0
+
         # 1.  Handle the case of the spec defined by a torch.dtype
         if isinstance(code, torch.dtype):
             self._torch_dtype = code
@@ -134,7 +134,11 @@ class NumberSpec:
 
         # 9.  See if what we have matches a torch.dtype
         if self._torch_dtype is None:
-            self._torch_dtype = self._find_torch_dtype()
+            dtype = self._find_torch_dtype()
+            if dtype:
+                torch_name = str(dtype)[6:]
+                self.STANDARD_NAME_MAP[torch_name] = self.name
+                self._torch_dtype = dtype
 
     # fmt: off
     @property
@@ -157,6 +161,10 @@ class NumberSpec:
     def is_codebook(self): return False
     @property
     def torch_dtype(self) -> torch.dtype | None: return self._torch_dtype
+    @property
+    def rtol(self) -> float: return 1.0
+    @property
+    def atol(self) -> float: return 2**self.emax // 2**self.mbits
     # fmt: on
 
     def _find_torch_dtype(self) -> torch.dtype | None:
@@ -184,6 +192,12 @@ class NumberSpec:
             if self.ebits == 4 and self.mbits == 3 and self.bias == 8 and self.infnan == InfNaN.FNUZ:
                 return torch.float8_e4m3fnuz
         return None
+
+    @classmethod
+    def standard(cls, name: str) -> str:
+        """Number format names for floats are standardized to EMB format; find that format name."""
+        n = cls.STANDARD_NAME_MAP[name] if name in cls.STANDARD_NAME_MAP else name
+        return n
 
     @classmethod
     def valid(cls, code: str | torch.dtype) -> bool:
