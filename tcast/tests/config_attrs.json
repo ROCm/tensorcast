@@ -13,5 +13,8 @@
     "do_dtype": "float8_e5m2fnuz",
     "icp_qk": true,
     "icp_pv": false,
-    "icp_fp32": true
+    "icp_fp32": true,
+    "roundmode": "nearest",
+    "scalemode": "floor",
+    "castmode": "virtual"
 }
