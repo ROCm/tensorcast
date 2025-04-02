@@ -18,6 +18,7 @@ class DataType:
     registry = {}
 
     def __init__(self, nspec: str | NumberSpec = None, sspec: str | ScaleSpec = None, name: str = None):
+        name, aliases = (name[0], name[1:]) if isinstance(name, tuple) else (name, [])
         if name in self.registry:
             existing_instance = self.registry[name]
             self.__dict__ = copy.deepcopy(existing_instance.__dict__)
@@ -45,7 +46,7 @@ class DataType:
                     nspec = segments[0]
                     sspec = None if len(segments) == 1 else "_".join(segments[1:])
                 if not self.valid(nspec, sspec):
-                    raise ValueError(f"DataType '{name}' is ambigous or othewise invalid.")
+                    raise ValueError(f"DataType '{name}' is ambiguous or otherwise invalid.")
         self.nspec = (
             nspec
             if isinstance(nspec, NumberSpec)
@@ -55,7 +56,7 @@ class DataType:
         )
         self.sspec = sspec if isinstance(sspec, ScaleSpec) else ScaleSpec(sspec) if sspec else None
         self._name = name
-        for attr in ("channel", "tile", "subtile", "sparse", "tensor", "multiscale", "2d"):
+        for attr in ("channel", "tile", "subtile", "sparse", "tensor", "multiscale", "2d", "square"):
             setattr(self, f"is_{attr}", self.sspec is not None and getattr(self.sspec, f"is_{attr}"))
         self.is_unscaled, self.is_codebook = self.sspec is None, self.nspec.is_codebook
         self._check()
@@ -67,6 +68,9 @@ class DataType:
             and not self.is_sparse
         )
         self.registry[self.name] = self
+        for alias in aliases:
+            if alias not in self.registry:
+                self.registry[alias] = self
 
     def _check(self):
         prefix = f"DataType: '{self.name}'"
