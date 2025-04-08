@@ -9,6 +9,7 @@ from collections.abc import Callable
 import torch
 
 from .common import STD_DTYPES, CastMode, Modes, RoundMode, ScaleMode
+from .datatype import DataType
 from .number import NumberSpec
 from .tensor import Tensor
 from .utils import get_logger
@@ -195,16 +196,22 @@ class TorchCast:
         tensor.update(scale=scale, zero=zero)
 
     @staticmethod
-    def supports(tensor: Tensor) -> bool:
+    def supports(tensor: Tensor = None, dtype: DataType = None) -> bool:
         """Check if the cast operation is supported by in the torch code."""
-        return (
-            Modes.cast == CastMode.VIRTUAL
-            and tensor.input.dim() == 2
-            and tensor.input.dtype in STD_DTYPES
-            # and tensor.dtype.torch_dtype in FP8_DTYPES
-            and not tensor.needs_pad
-            and not tensor.dtype.sspec.is_square
-        )
+        if tensor:
+            return (
+                Modes.cast == CastMode.VIRTUAL
+                and tensor.input.dim() == 2
+                and tensor.input.dtype in STD_DTYPES
+                and not tensor.needs_pad
+                and not tensor.dtype.is_square
+            )
+        if dtype:
+            return (
+                Modes.cast == CastMode.VIRTUAL
+                and dtype.nspec.torch_dtype in STD_DTYPES
+                and not dtype.is_square
+            )
 
     @staticmethod
     def cast(tensor: Tensor) -> bool:
