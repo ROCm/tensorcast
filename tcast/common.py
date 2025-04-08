@@ -16,7 +16,22 @@ logger = logging.getLogger(f"tcast.{__name__}")
 
 EPS = torch.finfo(torch.float32).smallest_normal
 STD_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
-FP8_DTYPES = (torch.float8_e4m3fn, torch.float8_e4m3fnuz, torch.float8_e5m2, torch.float8_e5m2fnuz)
+FP8_DTYPES = (torch.float8_e5m2, torch.float8_e5m2fnuz, torch.float8_e4m3fn, torch.float8_e4m3fnuz)
+
+
+def torch_dtype_to_triton(dtype: torch.dtype) -> str:
+    """Convert PyTorch dtype to Triton dtype."""
+    if dtype is None:
+        dtype = torch.float32
+    if dtype == torch.uint8:
+        return "u8"
+    if dtype in STD_DTYPES:
+        dtype = str(dtype)[6:]
+        return dtype.replace("loat", ("p", "f")[dtype.startswith("b")])
+    if dtype in FP8_DTYPES:
+        dtype = str(dtype).split(".")[-1]
+        return {"e5m2": "fp8e5", "e5m2fnuz": "fp8e5b16", "e4m3fn": "fp8e4nv", "e4m3fnuz": "fp8e4b8"}[dtype]
+    return None
 
 
 class RoundMode(Enum):
