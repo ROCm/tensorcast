@@ -9,9 +9,21 @@ from typing import overload
 
 import torch
 
-from .common import STD_DTYPES, CastMode, ComputeMode, InfNaN, Modes, RoundMode, ScaleMode, get_enum
-from .config import LPConfig
+from .attention import Attention
+from .common import (
+    FP8_DTYPES,
+    STD_DTYPES,
+    CastMode,
+    ComputeMode,
+    InfNaN,
+    Modes,
+    RoundMode,
+    ScaleMode,
+    get_enum,
+    torch_dtype_to_triton,
+)
 from .datatype import DataType
+from .incoherence import ICP
 from .injector import mixed_precision_injector, torch_injector
 from .number import Codebook, NumberLine, NumberSpec
 from .scale import ScaleSpec
@@ -24,6 +36,7 @@ from .utils import (
     get_logger,
     is_float8_available,
     is_float8_fnuz_available,
+    is_power_of_2,
     is_triton_available,
     kurtosis,
     make_outliers,
@@ -98,9 +111,9 @@ def set_defaults(device: str = "cuda", precision: int = 8, logname: str = "tcast
 float32 = DataType(name=("e8m23", "float32"))
 float16 = DataType(name=("e5m10", "float16"))
 bfloat16 = DataType(name=("e7m8", "bfloat16"))
-float8_e5m2 = bf8 = e5m2fn = DataType(name=("e5m2", "bf8", "float8_5m2"))
+float8_e5m2 = bf8 = e5m2fn = DataType(name=("e5m2", "bf8", "float8_e5m2"))
 float8_e4m3fn = fp8 = e4m3fn = DataType(name=("e4m3fn", "fp8", "float8_e4m3fn"))
-float8_e5m2fnuz = bf8n = e5m2fnuz = DataType(name=("e5m2fnuz", "bf8n", "float8_5m2fnuz"))
+float8_e5m2fnuz = bf8n = e5m2fnuz = DataType(name=("e5m2fnuz", "bf8n", "float8_e5m2fnuz"))
 float8_e4m3fnuz = fp8n = e4m3fnuz = DataType(name=("e4m3fnuz", "fp8n", "float8_e4m3fnuz"))
 
 # (aliased) OCP 8-bit unscaled datatypes
@@ -288,60 +301,56 @@ def datatype(nspec: str | NumberSpec = None, sspec: str | ScaleSpec = None, name
     return DataType(nspec, sspec, name)
 
 
-@overload
-def configuration(method: int) -> LPConfig: ...
-
-
-@overload
-def configuration(method: Path) -> LPConfig: ...
-
-
-@overload
-def configuration(method: str) -> LPConfig: ...
-
-
 # fmt: off
 @overload
+def configuration(method: int) -> Attention: ...
+@overload
+def configuration(method: Path) -> Attention: ...
+@overload
+def configuration(method: str) -> Attention: ...
+@overload
 def configuration(
-    block_size: tuple[int, int] = (0, 0), block_axes: tuple[int, int] = (0, 1), scale_dtype=None, q_dtype=None,
+    block_size: tuple[int, int] = (0, 0), scale_dtype=None, q_dtype=None,
     k_dtype=None, v_dtype=None, p_dtype=None, ds_dtype=None, do_dtype=None,
-    icp_qk: bool = False, icp_pv: bool = False, icp_fp32: bool = False
-) -> LPConfig: ...
+    icp_qk: bool = False, icp_pv: bool = False, icp_fp32: bool = False,
+    scalemode: ScaleMode | str = None, roundmode: RoundMode | str = None,
+    castmode: CastMode | str = None,
+) -> Attention: ...
 # fmt: on
 
 
-def configuration(method: int | Path | str | dict = None, **kwargs) -> LPConfig:
+def configuration(method: int | Path | str | dict = None, **kwargs) -> Attention:
     """Create an LP configuration with a code, json path, shortcut, or params."""
     if isinstance(method, int):
-        return LPConfig(code=method)
+        return Attention(code=method)
     if isinstance(method, Path):
-        return LPConfig(json_path=method)
+        return Attention(json_path=method)
     if isinstance(method, str):
-        return LPConfig(shortcut=method)
+        return Attention(shortcut=method)
     if isinstance(method, dict):
-        return LPConfig(**method)
+        return Attention(**method)
     if method is None and kwargs:
-        return LPConfig(**kwargs)
+        return Attention(**kwargs)
     raise TypeError("Invalid type for method")
 
 
 # Example usage
 # config1 = configuration(42)
 # config2 = configuration(Path(__file__).with_name("tests") / "config_attrs.json")
-# config3 = configuration("split_match_e4m3fnuz_e5m2fnuz_icpqk32_32x32")
+# config3 = configuration("split_match_e4m3fnuz_e5m2fnuz_icpqk32_32x32_FAV")
 # config4 = configuration(block_size=(16, 16), scale_dtype="float32")
 
 
 def randomize_imatrix(cls, imatrix: torch.Tensor) -> torch.Tensor:
     """Randomize a Walsh-Hadamard matrix while preserving orthogonality."""
-    return LPConfig.randomize_imatrix(imatrix)
+    return ICP.randomize_imatrix(imatrix)
 
 
 def get_imatrix(
     size: int, dtype: str | torch.dtype = torch.float32, walsh: bool = True, randomize: bool = True, replace: bool = False
 ) -> torch.Tensor:
     """Get, create, randomize, or replace an identity matrix with optionally randomized Walsh-Hadamard rows."""
-    return LPConfig.get_imatrix(size, dtype, walsh, randomize, replace)
+    return ICP.get_imatrix(size, dtype, walsh, randomize, replace)
 
 
 logger = get_logger("tcast")
@@ -355,6 +364,7 @@ def cast(
     computemode: ComputeMode | str = None,
     castmode: CastMode | str = None,
     transpose_scale: bool = False,
+    return_tensor: bool = False,  # if True, return a tcast.Tensor even for virtual cast
 ) -> torch.Tensor | Tensor:
     """
     Virtual, actual or compressed cast of torch.Tensor to dtype.
@@ -387,7 +397,7 @@ def cast(
     if not tor_success:
         raise AssertionError("tcast.cast: datatype conversion FAILED in Torch")
     tensor.postcast()
-    if Modes.cast == CastMode.VIRTUAL:
+    if Modes.cast == CastMode.VIRTUAL and not return_tensor:
         torch_tensor = tensor.output.to(out_dtype)
         del tensor
         tensor = torch_tensor
