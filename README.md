@@ -29,6 +29,13 @@ at times.  We welcome feedback (and direct contribution) that will help us impro
 
 ## Status Updates
 
+### 4/8/25
+
+- most of the tests are written, but need to be debugged
+- substantial reorganization of the tcast source
+  - primary motive is to isolate and combine the attention PyTorch and Triton interfaces
+  - moved most of the Triton kernel code to a generic space so that it can be used independently of attention for the TritonCast implentation
+
 ### 4/2/25
 
 - got scale_and_quantize (an everything it uses) working in interpreter mode

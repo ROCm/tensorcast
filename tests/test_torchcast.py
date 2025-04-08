@@ -8,6 +8,7 @@ import pytest
 import torch
 
 import tcast
+import tests.base_misc as M
 import tests.base_mx as MX
 import tests.base_sqt as SQT
 import tests.base_torch as T
@@ -82,170 +83,170 @@ def test_torchcast_unscaled(compare: str, dtype: tcast.DataType, torch_dtype: to
     _torchcast_generic(compare, dtype, torch_dtype, shape, roundmode)
 
 
-# @pytest.mark.parametrize("compare", ["v2", "sqt"])
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_tensor and x.nspec.bits <= 8))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# @pytest.mark.parametrize("roundmode", ROUND)
-# def test_torchcast_tensor(compare: str, dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str):
-#     """Test torchcast virtual mode and tensor scaled tcast dtypes."""
-#     _torchcast_generic(compare, dtype, torch_dtype, shape, roundmode)
+@pytest.mark.parametrize("compare", ["v2", "sqt"])
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_tensor and x.nspec.bits <= 8))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("roundmode", ROUND)
+def test_torchcast_tensor(compare: str, dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str):
+    """Test torchcast virtual mode and tensor scaled tcast dtypes."""
+    _torchcast_generic(compare, dtype, torch_dtype, shape, roundmode)
 
 
-# @pytest.mark.parametrize("compare", ["v2"])
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_channel and x.nspec.bits <= 8))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# @pytest.mark.parametrize("roundmode", ROUND)
-# @pytest.mark.parametrize("transpose", [False, True])
-# def test_torchcast_channel(
-#     compare: str, dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
-# ):
-#     """Test torchcast virtual mode and channel scaled tcast dtypes."""
-#     _torchcast_generic(compare, dtype, torch_dtype, shape, roundmode, transpose)
+@pytest.mark.parametrize("compare", ["v2"])
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_channel and x.nspec.bits <= 8))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("roundmode", ROUND)
+@pytest.mark.parametrize("transpose", [False, True])
+def test_torchcast_channel(
+    compare: str, dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
+):
+    """Test torchcast virtual mode and channel scaled tcast dtypes."""
+    _torchcast_generic(compare, dtype, torch_dtype, shape, roundmode, transpose)
 
 
-# @pytest.mark.parametrize("compare", ["v2", "sqt"])
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_tile and x.nspec.bits == 8 and not x.is_mxfp))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# @pytest.mark.parametrize("roundmode", ROUND)
-# @pytest.mark.parametrize("transpose", [False, True])
-# def test_torchcast_tile_fp8(
-#     compare: str, dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
-# ):
-#     """Test torchcast with FP8 tiled datatypes."""
-#     _torchcast_generic(compare, dtype, torch_dtype, shape, roundmode, transpose)
+@pytest.mark.parametrize("compare", ["v2", "sqt"])
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_tile and x.nspec.bits == 8 and not x.is_mxfp))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("roundmode", ROUND)
+@pytest.mark.parametrize("transpose", [False, True])
+def test_torchcast_tile_fp8(
+    compare: str, dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
+):
+    """Test torchcast with FP8 tiled datatypes."""
+    _torchcast_generic(compare, dtype, torch_dtype, shape, roundmode, transpose)
 
 
-# @pytest.mark.parametrize("compare", ["v2", "sqt"])
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_tile and x.nspec.bits < 8))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# @pytest.mark.parametrize("roundmode", ROUND)
-# @pytest.mark.parametrize("transpose", [False, True])
-# def test_torchcast_tile(
-#     compare: str, dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
-# ):
-#     """Test torchcast with smaller tile scaled datatypes."""
-#     _torchcast_generic(compare, dtype, torch_dtype, shape, roundmode, transpose)
+@pytest.mark.parametrize("compare", ["v2", "sqt"])
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_tile and x.nspec.bits < 8))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("roundmode", ROUND)
+@pytest.mark.parametrize("transpose", [False, True])
+def test_torchcast_tile(
+    compare: str, dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
+):
+    """Test torchcast with smaller tile scaled datatypes."""
+    _torchcast_generic(compare, dtype, torch_dtype, shape, roundmode, transpose)
 
 
-# @pytest.mark.parametrize("compare", ["v2", "sqt", "mx"])
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_mxfp))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# @pytest.mark.parametrize("roundmode", ROUND)
-# @pytest.mark.parametrize("transpose", [False, True])
-# def test_torchcast_tile_mxfp(
-#     compare: str, dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
-# ):
-#     """Test torchcast with MXFP datatypes."""
-#     _torchcast_generic(compare, dtype, torch_dtype, shape, roundmode, transpose)
+@pytest.mark.parametrize("compare", ["v2", "sqt", "mx"])
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_mxfp))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("roundmode", ROUND)
+@pytest.mark.parametrize("transpose", [False, True])
+def test_torchcast_tile_mxfp(
+    compare: str, dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
+):
+    """Test torchcast with MXFP datatypes."""
+    _torchcast_generic(compare, dtype, torch_dtype, shape, roundmode, transpose)
 
 
-# @pytest.mark.parametrize("compare", ["pytorch"])
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.nspec.torch_dtype is not None))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# def test_torchcast_torch(compare: str, dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int]):
-#     """Unscaled torchcast with virtual mode and tcast dtypes that have a torch dtype, compare to torch ".to"."""
-#     _torchcast_generic(compare, dtype, torch_dtype, shape, "even")
+@pytest.mark.parametrize("compare", ["pytorch"])
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.nspec.torch_dtype is not None))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+def test_torchcast_torch(compare: str, dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int]):
+    """Unscaled torchcast with virtual mode and tcast dtypes that have a torch dtype, compare to torch ".to"."""
+    _torchcast_generic(compare, dtype, torch_dtype, shape, "even")
 
 
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_unscaled and x.nspec.bits <= 16))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# @pytest.mark.parametrize("roundmode", ROUND)
-# @pytest.mark.parametrize("transpose", [False, True])
-# def test_torchcast_quantization_error(
-#     dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
-# ):
-#     """Test torchcast with virtual mode and unscaled datatypes."""
-#     if not tcast.TorchCast.supports(dtype=dtype):
-#         pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
-#     M.base_quantization_error(dtype, torch_dtype, shape, roundmode, transpose)
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_unscaled and x.nspec.bits <= 16))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("roundmode", ROUND)
+@pytest.mark.parametrize("transpose", [False, True])
+def test_torchcast_quantization_error(
+    dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
+):
+    """Test torchcast with virtual mode and unscaled datatypes."""
+    if not tcast.TorchCast.supports(dtype=dtype):
+        pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
+    M.base_quantization_error(dtype, torch_dtype, shape, roundmode, transpose)
 
 
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_unscaled and x.nspec.bits <= 16))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# @pytest.mark.parametrize("roundmode", ROUND)
-# @pytest.mark.parametrize("transpose", [False, True])
-# def test_torchcast_quantization_unscaled(
-#     dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
-# ):
-#     """Test torchcast with virtual mode and unscaled datatypes."""
-#     if not tcast.TorchCast.supports(dtype=dtype):
-#         pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
-#     M.base_quantization_representable(dtype, torch_dtype, shape, roundmode, transpose)
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_unscaled and x.nspec.bits <= 16))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("roundmode", ROUND)
+@pytest.mark.parametrize("transpose", [False, True])
+def test_torchcast_quantization_unscaled(
+    dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
+):
+    """Test torchcast with virtual mode and unscaled datatypes."""
+    if not tcast.TorchCast.supports(dtype=dtype):
+        pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
+    M.base_quantization_representable(dtype, torch_dtype, shape, roundmode, transpose)
 
 
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_tensor and x.nspec.bits <= 8))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# @pytest.mark.parametrize("roundmode", ROUND)
-# @pytest.mark.parametrize("transpose", [False, True])
-# def test_torchcast_quantization_tensor(
-#     dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
-# ):
-#     """Test torchcast with virtual mode and tensor scaled datatypes."""
-#     if not tcast.TorchCast.supports(dtype=dtype):
-#         pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
-#     M.base_quantization_representable(dtype, torch_dtype, shape, roundmode, transpose)
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_tensor and x.nspec.bits <= 8))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("roundmode", ROUND)
+@pytest.mark.parametrize("transpose", [False, True])
+def test_torchcast_quantization_tensor(
+    dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
+):
+    """Test torchcast with virtual mode and tensor scaled datatypes."""
+    if not tcast.TorchCast.supports(dtype=dtype):
+        pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
+    M.base_quantization_representable(dtype, torch_dtype, shape, roundmode, transpose)
 
 
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_channel and x.nspec.bits <= 8))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# @pytest.mark.parametrize("roundmode", ROUND)
-# @pytest.mark.parametrize("transpose", [False, True])
-# def test_torchcast_quantization_channel(
-#     dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
-# ):
-#     """Test torchcast with virtual mode and channel scaled datatypes."""
-#     if not tcast.TorchCast.supports(dtype=dtype):
-#         pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
-#     M.base_quantization_representable(dtype, torch_dtype, shape, roundmode, transpose)
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_channel and x.nspec.bits <= 8))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("roundmode", ROUND)
+@pytest.mark.parametrize("transpose", [False, True])
+def test_torchcast_quantization_channel(
+    dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
+):
+    """Test torchcast with virtual mode and channel scaled datatypes."""
+    if not tcast.TorchCast.supports(dtype=dtype):
+        pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
+    M.base_quantization_representable(dtype, torch_dtype, shape, roundmode, transpose)
 
 
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_tile and x.nspec.bits == 8 and not x.is_mxfp))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# @pytest.mark.parametrize("roundmode", ROUND)
-# @pytest.mark.parametrize("transpose", [False, True])
-# def test_torchcast_quantization_tile_fp8(
-#     dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
-# ):
-#     """Test torchcast with virtual mode and unscaled datatypes."""
-#     if not tcast.TorchCast.supports(dtype=dtype):
-#         pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
-#     M.base_quantization_representable(dtype, torch_dtype, shape, roundmode, transpose)
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_tile and x.nspec.bits == 8 and not x.is_mxfp))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("roundmode", ROUND)
+@pytest.mark.parametrize("transpose", [False, True])
+def test_torchcast_quantization_tile_fp8(
+    dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
+):
+    """Test torchcast with virtual mode and unscaled datatypes."""
+    if not tcast.TorchCast.supports(dtype=dtype):
+        pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
+    M.base_quantization_representable(dtype, torch_dtype, shape, roundmode, transpose)
 
 
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_tile and x.nspec.bits < 8 and not x.is_mxfp))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# @pytest.mark.parametrize("roundmode", ROUND)
-# @pytest.mark.parametrize("transpose", [False, True])
-# def test_torchcast_quantization_tile(
-#     dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
-# ):
-#     """Test torchcast with virtual mode and unscaled datatypes."""
-#     if not tcast.TorchCast.supports(dtype=dtype):
-#         pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
-#     M.base_quantization_representable(dtype, torch_dtype, shape, roundmode, transpose)
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_tile and x.nspec.bits < 8 and not x.is_mxfp))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("roundmode", ROUND)
+@pytest.mark.parametrize("transpose", [False, True])
+def test_torchcast_quantization_tile(
+    dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
+):
+    """Test torchcast with virtual mode and unscaled datatypes."""
+    if not tcast.TorchCast.supports(dtype=dtype):
+        pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
+    M.base_quantization_representable(dtype, torch_dtype, shape, roundmode, transpose)
 
 
-# @pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_mxfp))
-# @pytest.mark.parametrize("torch_dtype", INPUT)
-# @pytest.mark.parametrize("shape", SHAPES)
-# @pytest.mark.parametrize("roundmode", ROUND)
-# @pytest.mark.parametrize("transpose", [False, True])
-# def test_torchcast_quantization_mxfp(
-#     dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
-# ):
-#     """Test torchcast with virtual mode and unscaled datatypes."""
-#     if not tcast.TorchCast.supports(dtype=dtype):
-#         pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
-#     M.base_quantization_representable(dtype, torch_dtype, shape, roundmode, transpose)
+@pytest.mark.parametrize("dtype", tcast.DataType.gather_registered(lambda x: x.is_mxfp))
+@pytest.mark.parametrize("torch_dtype", INPUT)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("roundmode", ROUND)
+@pytest.mark.parametrize("transpose", [False, True])
+def test_torchcast_quantization_mxfp(
+    dtype: tcast.DataType, torch_dtype: torch.dtype, shape: tuple[int], roundmode: str, transpose: bool
+):
+    """Test torchcast with virtual mode and unscaled datatypes."""
+    if not tcast.TorchCast.supports(dtype=dtype):
+        pytest.skip(f"tcast does not support {str(dtype)}, skipping test.")
+    M.base_quantization_representable(dtype, torch_dtype, shape, roundmode, transpose)

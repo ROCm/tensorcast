@@ -2,7 +2,7 @@
 
 # Examples
 
-> TODO(ericd) *this needs editing and more examples*
+> TODO(ericd) *low precision example is behind the code*
 
 A collection of examples on how to use Tensorcast.
 
