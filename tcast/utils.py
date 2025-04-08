@@ -4,14 +4,16 @@
 
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
 
+from enum import Enum
 import importlib
+import inspect
 import logging
 import math
+import os
 from pathlib import Path
 import random
-import struct
 
-import numpy
+import numpy as np
 from scipy.stats import kurtosis as ref_kurtosis
 import torch
 import triton
@@ -32,7 +34,7 @@ def get_logger(name: str = "tcast", replace: bool = False) -> logging.Logger:
     ch.setFormatter(formatter)
     ch.setLevel(logging.INFO)
     logger.addHandler(ch)
-    fh = logging.FileHandler((name + ".log").replace(".log.log", ".log"), mode="w")
+    fh = logging.FileHandler(("../" + name + ".log").replace(".log.log", ".log"), mode="w")
     fh.setLevel(logging.INFO)
     fh.setFormatter(formatter)
     logger.addHandler(fh)
@@ -79,8 +81,8 @@ def maybe_contiguous(x: torch.Tensor): return x.contiguous() if x is not None an
 
 def triton_fp8_support() -> int:
     """Check if what Triton FP8 support is on this device."""
-    # HACK ALERT! We need to know what FP8 support we have in Triton for the snippets,
-    # but it isn't clear yet how to do that fro within a @triton.jit kernel.  So it's
+    # HACK ALERT! We need to know what FP8 support we have in Triton,
+    # but it isn't clear yet how to do that from within a @triton.jit kernel.  So it's
     # hardcoded here.  Returns a 4 bit code, where support is 1 for e5m2, 2 for e5m2fnuz,
     # 4 for e4m3fn, and 8 for e4m3fnuz.
     code = 0
@@ -101,7 +103,7 @@ def triton_fp8_support() -> int:
 def set_seed(seed=0, backend: bool = False):
     """Set random seeds for reproducibility."""
     random.seed(seed)
-    numpy.random.seed(seed)
+    np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -171,34 +173,111 @@ def make_outliers(
     return x
 
 
-def to_string(val, spaced=True, code='f'):
-    """ Debug util for visualizing float values."""
-    s = ''.join(bin(c).replace('0b', '').rjust(8, '0') for c in struct.pack('!' + code, val))
-    spaced = spaced and len(s) == 32
-    return f"{s[0]} {s[1:9]} {s[9:]}" if spaced else s
+def convert_enum(enum_type, enum_value, convert_type=None) -> str | int | None:
+    """Convert a string, int, or enum instance to a string, int, or enum instance."""
+    # enum_type is a class derived from Enum (if not, return None)
+    # enum_value is a string, int, or enum instance
+    # convert_type is str, int, or None
+    if inspect.isclass(enum_type) and issubclass(enum_type, Enum):
+        # first, convert enum_value to enum_instance
+        if isinstance(enum_value, str):
+            enum_value = enum_value.upper()
+            if enum_value not in dir(enum_type):
+                raise ValueError(f"'{enum_value}' is not a valid {enum_type.__name__} name.")
+            enum_instance = enum_type[enum_value]
+        elif isinstance(enum_value, int):
+            if enum_value >= len(enum_type):
+                raise ValueError(f"'{enum_value}' is not a valid {enum_type.__name__} value.")
+            enum_instance = enum_type(enum_value)
+        elif isinstance(enum_value, enum_type):
+            enum_instance = enum_value
+        else:
+            raise ValueError(f"'{enum_value}' type {type(enum_value)} is not a valid type for enum_value.")
+        # convert enum_instance to a str, int, or enum instance
+        if convert_type is str:
+            return enum_instance.name
+        if convert_type is int:
+            return enum_instance.value
+        return enum_instance
+    return None
 
 
-def to_float(s, sign=1, exp=8, _=23, bias=127):
-    """ Debug util for converting string to float32."""
-    frac = 0.0
-    s = ''.join(s.strip().split(' '))
-    if s[1:9] == "11111111":
-        if int(s[9:], base=2) != 0:
-            return float("NaN")
-        elif s[0] == "0":
-            return float("Inf")
-        return float("-Inf")
-    m = s[exp+sign:]
-    for i, ch in enumerate(m):
-        if ch == '1':
-            frac += pow(2.0, -i -1)
-    e = int(s[sign:sign+exp], base=2)
-    if e == 0:
-        if frac == 0.0:
-            return 0.0
-        f = 2**(1 - bias) * frac
+def getenv(x: str, dflt: str = "", dtype=str, prefix: str = ""):
+    """Get an environment variable with optional default and type conversion."""
+    # for TensorCast attention interface, prefix is "TC_"
+    # in flash_attn, prefix is usually FLASH_ATTENTION_TRITON_AMD_
+    x = x.upper()
+    if prefix and not x.endswith(prefix):
+        prefix += "_"
+    prefix = prefix.upper()
+    if prefix and not x.startswith(prefix):
+        x = f"{prefix}{x}"
+    setting = os.getenv(x, dflt)
+    if setting is None or setting.lower() == "none":
+        return None
+    if dtype is bool:
+        return setting in ("1", "true", "yes")
+    if dtype in (np.int64,  int):
+        try:
+            if setting.startswith("0x"):
+                return dtype(int(setting, 16))
+            elif setting.replace("-", "").isdigit():
+                return dtype(setting)
+        except ValueError as err:
+            raise ValueError(f"Invalid integer value for {x}: {setting}") from err
+    if dtype is float and setting.replace(".", "").replace("-", "").isdigit():
+        return dtype(setting)
+    if dtype is tuple:
+        return tuple(int(i) for i in setting.split(","))
+    if issubclass(dtype, Enum):
+        if setting.isdigit():
+            return convert_enum(Enum, int(setting))
+        else:
+            return convert_enum(Enum, setting)
+    if dtype is Path:
+        return Path(setting)
+    return setting
+
+
+def to_string(val, spaced=True, dtype=torch.float32):
+    """Debug util for visualizing float values."""
+    if dtype == torch.float32:
+        idtype, space = torch.int32, 8
+    elif dtype == torch.float16:
+        idtype, space = torch.int16, 5
+    elif dtype == torch.bfloat16:
+        idtype, space = torch.int16, 8
     else:
-        f = 2**(e - bias) * (1.0 + frac)
-    if sign == 1 and int(s[0]) == 1:
-        f = -f
-    return f
+        raise ValueError(f"Unsupported dtype: {dtype}. Supported types are torch.float32, torch.float16, and torch.bfloat16.")
+    bits = torch.tensor([val], dtype=dtype).view(idtype).item()
+    s = f"{bits:0(dtype.itemsize*8}b"
+    spaced = spaced and len(s)in [32, 16]
+    return f"{s[0]} {s[1:space+1]} {s[space+1:]}" if spaced else s
+
+
+def to_float(s: str, dtype=torch.float32) -> float:
+    """Convert a binary string to a float32."""
+    s = s.replace(" ", "").strip()
+    size = dtype.itemsize * 8
+    if len(s) != size:
+        raise ValueError(f"Input string must be {size} bits long for dtype {dtype}")
+    if dtype == torch.float32:
+        ebits, mbits, bias = 8, 23, 127
+    elif dtype == torch.float16:
+        ebits, mbits, bias = 5, 10, 15
+    elif dtype == torch.bfloat16:
+        ebits, mbits, bias = 8, 7, 127
+    else:
+        raise ValueError(f"Unsupported dtype: {dtype}. Supported types are torch.float32, torch.float16, and torch.bfloat16.")
+    sign_bit = int(s[0], 2)
+    exponent = int(s[1:1 + ebits], 2)
+    mantissa = int(s[1 + ebits:], 2)
+    if exponent == (1 << ebits) - 1:  # All exponent bits are 1
+        if mantissa != 0:
+            return float("NaN")
+        return float("Inf") if sign_bit == 0 else float("-Inf")
+    elif exponent == 0:  # All exponent bits are 0 (denormalized number)
+        if mantissa == 0:
+            return 0.0
+        return (-1) ** sign_bit * 2 ** (1 - bias) * (mantissa / (1 << mbits))
+    return (-1) ** sign_bit * 2 ** (exponent - bias) * (1 + mantissa / (1 << mbits))
