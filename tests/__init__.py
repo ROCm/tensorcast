@@ -3,3 +3,5 @@
 # SPDX-License-Identifier: MIT
 
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
+
+from .utils import dependency_assert
