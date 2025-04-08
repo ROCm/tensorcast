@@ -6,11 +6,8 @@
 """TensorCast: Specification, conversion and compression of arbitrary datatypes."""
 
 import torch
-import triton
-import triton.language as tl
 
-from . import snippets as lp
-from .common import FP8_DTYPES, STD_DTYPES, CastMode, Modes, RoundMode, ScaleMode
+from .common import FP8_DTYPES, STD_DTYPES, CastMode, Modes
 from .tensor import Tensor
 from .utils import is_triton_available
 
@@ -32,7 +29,7 @@ class TritonCast:
                 and tensor.input.dim() == 2
                 and tensor.input.dtype in STD_DTYPES
                 and tensor.dtype.nspec.torch_dtype in FP8_DTYPES
-                and not tensor.needs_pad()
+                and not tensor.needs_pad
                 and tensor.dtype.is_square
             )
 
