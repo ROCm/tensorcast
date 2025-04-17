@@ -122,7 +122,7 @@ def dependency_assert(lib: str = "v2"):
         logger.error(
             "mx package not found:\n"
             "> mkdir tmp; cd tmp\n"
-            "> git clone github.com/microsoft/microxcaling\n"
+            "> git clone https://github.com/microsoft/microxcaling.git\n"
             "> cp -r microxcaling/mx $TCAST/mx\n"
         )
         raise AssertionError("mx package not found")
