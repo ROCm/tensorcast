@@ -65,12 +65,14 @@ def _torchcast_generic(
     """Test torchcast with virtual mode and tcast dtypes selected by the specific test function."""
     if compare == "v2":
         _compare_v2(dtype, torch_dtype, shape, roundmode, transpose)
-    if compare == "sqt":
+    elif compare == "sqt":
         _compare_sqt(dtype, torch_dtype, shape, roundmode, transpose)
-    if compare == "mx":
+    elif compare == "mx":
         _compare_mx(dtype, torch_dtype, shape, roundmode, transpose)
-    if compare == "pytorch":
+    elif compare == "pytorch":
         _compare_pytorch(dtype, torch_dtype, shape, roundmode, transpose)
+    else:
+        raise ValueError(f"Unknown compare mode: {compare}")
 
 
 @pytest.mark.parametrize("compare", ["v2", "sqt", "mx"])
