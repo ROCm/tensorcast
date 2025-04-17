@@ -129,7 +129,11 @@ class DataType:
         """Return a list of all registered DataType instances for which the fn is True."""
         if fn is None:
             return list(cls.registry.keys())  # get them all
-        return [dt for dt in cls.registry.values() if fn(dt)]
+        _return = []
+        for dt in cls.registry.values():
+            if fn(dt) and dt not in _return:
+                _return.append(dt)
+        return _return
 
     @classmethod
     def valid(cls, ncode: str = None, scode: str = None, name: str = None) -> bool:
