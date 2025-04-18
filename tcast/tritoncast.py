@@ -19,14 +19,12 @@ class TritonCast:
     @staticmethod
     def supports(tensor: Tensor) -> bool:
         """Check if the cast operation is supported by in the triton code."""
-        if not is_triton_available():
-            return False
-        if Modes.cast == CastMode.UPCAST:
+        if Modes.cast == CastMode.UPCAST or not is_triton_available():
             return False  # TODO(ericd) implement upcast, then change this
         else:
             return (
                 Modes.cast != CastMode.COMPRESS
-                and tensor.input.dim() == 2
+                and tensor.input.dim() <= 2
                 and tensor.input.dtype in STD_DTYPES
                 and tensor.dtype.nspec.torch_dtype in FP8_DTYPES
                 and not tensor.needs_pad
