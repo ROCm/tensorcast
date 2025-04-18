@@ -56,8 +56,13 @@ class DataType:
         )
         self.sspec = sspec if isinstance(sspec, ScaleSpec) else ScaleSpec(sspec) if sspec else None
         self._name = name
-        for attr in ("channel", "tile", "subtile", "sparse", "tensor", "multiscale", "2d", "square"):
-            setattr(self, f"is_{attr}", self.sspec is not None and getattr(self.sspec, f"is_{attr}"))
+        for attr in ("int", "uint", "float"):
+            setattr(self, f"is_{attr}", getattr(self.nspec, f"is_{attr}"))
+        for attr in ("channel", "tile", "subtile", "sparse", "tensor", "multiscale", "2d", "square", "exponent", "zero_float"):
+            if self.sspec is None:
+                setattr(self, f"is_{attr}", False)
+            else:
+                setattr(self, f"is_{attr}", getattr(self.sspec, f"is_{attr}"))
         self.is_unscaled, self.is_codebook = self.sspec is None, self.nspec.is_codebook
         self._check()
         self.is_mxfp = (
@@ -65,6 +70,37 @@ class DataType:
             and self.is_tile
             and self.sspec.tile1 == 32
             and not self.is_2d
+            and not self.is_sparse
+        )
+        self.is_mxfp2d = (
+            self.nspec.name in ("e5m2", "e4m3fn", "e3m2fnuz", "e2m3fnuz", "e2m1fnuz")
+            and self.is_2d
+            and self.sspec.tile1 == 32
+            and self.sspec.tile0 == 32
+            and not self.is_sparse
+        )
+        self.is_mxfp2d16 = (
+            self.nspec.name in ("e5m2", "e4m3fn", "e3m2fnuz", "e2m3fnuz", "e2m1fnuz")
+            and self.is_2d
+            and self.sspec.tile1 == 16
+            and self.sspec.tile0 == 16
+            and not self.is_sparse
+        )
+        self.is_nvfp = (
+            self.nspec.name in ("e5m2", "e4m3fn", "e3m2fnuz", "e2m3fnuz", "e2m1fnuz")
+            and self.is_tile
+            and self.sspec.tile1 == 16
+            and self.sspec.scale.is_float
+            and not self.is_2d
+            and not self.is_sparse
+            and not self.is_mxfp
+        )
+        self.is_nvfp2d = (
+            self.nspec.name in ("e5m2", "e4m3fn", "e3m2fnuz", "e2m3fnuz", "e2m1fnuz")
+            and self.is_2d
+            and self.sspec.tile1 == 16
+            and self.sspec.tile0 == 16
+            and self.sspec.scale.is_float
             and not self.is_sparse
         )
         self.registry[self.name] = self
@@ -125,15 +161,14 @@ class DataType:
         return s
 
     @classmethod
-    def gather_registered(cls, fn: callable = None) -> list:
+    def gather_registered(cls, fn: callable = None, unfiltered = None) -> tuple:
         """Return a list of all registered DataType instances for which the fn is True."""
+        if unfiltered is None:
+            unfiltered = cls.registry.values()
         if fn is None:
-            return list(cls.registry.keys())  # get them all
-        _return = []
-        for dt in cls.registry.values():
-            if fn(dt) and dt not in _return:
-                _return.append(dt)
-        return _return
+            return tuple(unfiltered)
+        typenames = set([str(dt) for dt in unfiltered if fn(dt)])
+        return tuple(DataType(name=name) for name in typenames)
 
     @classmethod
     def valid(cls, ncode: str = None, scode: str = None, name: str = None) -> bool:
