@@ -27,9 +27,6 @@ logger = get_logger("tcast")
 #     """Check if the object is a subclass, even if it is not a class."""
 #     return inspect.isclass(obj) and issubclass(obj, class_type)
 
-
-EPS = torch.finfo(torch.float32).smallest_normal
-
 #####
 ##### The Triton attention interface starts here
 #####
