@@ -14,7 +14,6 @@ import tests.base_v2 as V2
 import tests.utils as U
 import tests.base_mx as MX
 import tests.base_sqt as SQT
-import tests.base_v2 as V2
 
 TEST_DICT = {"mx": MX, "sqt": SQT, "v2": V2}
 
