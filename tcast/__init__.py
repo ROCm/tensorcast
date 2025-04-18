@@ -116,18 +116,6 @@ float8_e4m3fn = fp8 = e4m3fn = DataType(name=("e4m3fn", "fp8", "float8_e4m3fn"))
 float8_e5m2fnuz = bf8n = e5m2fnuz = DataType(name=("e5m2fnuz", "bf8n", "float8_e5m2fnuz"))
 float8_e4m3fnuz = fp8n = e4m3fnuz = DataType(name=("e4m3fnuz", "fp8n", "float8_e4m3fnuz"))
 
-# (aliased) OCP 8-bit unscaled datatypes
-bf8 = DataType(name="e5m2")
-e5m2 = DataType(name="e5m2")
-fp8 = DataType(name="e4m3fn")
-e4m3fn = DataType(name="e4m3fn")
-
-# (aliased) MI300 8-bit unscaled nanoo datatypes
-bf8n = DataType("float8_e5m2fnuz")
-e5m2fnuz = DataType("float8_e5m2fnuz")
-fp8n = DataType("float8_e4m3fnuz")
-e4m3fnuz = DataType("float8_e4m3fnuz")
-
 # IEEE P3109 8-bit unscaled datatypes
 binary8p1 = DataType("e7m0b63inuz", name="binary8p1")
 binary8p2 = DataType("e6m1b32inuz", name="binary8p2")
@@ -178,15 +166,15 @@ fp8n_n = DataType("e4m3fnuz", "e4m3", "fp8n_n")
 fp8n_e = DataType("e4m3fnuz", "e8m0", "fp8n_e")
 
 ### channel scaled
-uint8_FFc = DataType("uint8", "float32_float32", "uint8_FFc")
-uint8_ffc = DataType("uint8", "float16_float16", "uint8_ffc")
-uint8_bbc = DataType("uint8", "bfloat16_bfloat16", "uint8_bbc")
-uint8_Fic = DataType("uint8", "float32_int8", "uint8_Fic")
-uint8_fic = DataType("uint8", "float16_int8", "uint8_fic")
-uint8_bic = DataType("uint8", "bfloat16_int8", "uint8_bic")
-uint8_nic = DataType("uint8", "e4m3_int8", "uint8_nic")
+uint8_FFc = DataType("uint8", "float32_float32_t0", "uint8_FFc")
+uint8_ffc = DataType("uint8", "float16_float16_t0", "uint8_ffc")
+uint8_bbc = DataType("uint8", "bfloat16_bfloat16_t0", "uint8_bbc")
+uint8_Fic = DataType("uint8", "float32_int8_t0", "uint8_Fic")
+uint8_fic = DataType("uint8", "float16_int8_t0", "uint8_fic")
+uint8_bic = DataType("uint8", "bfloat16_int8_t0", "uint8_bic")
+uint8_nic = DataType("uint8", "e4m3_int8_t0", "uint8_nic")
 
-uint4_FFc = DataType("uint4", "float32_float32_t0", "uint84_FFc")
+uint4_FFc = DataType("uint4", "float32_float32_t0", "uint4_FFc")
 uint4_ffc = DataType("uint4", "float16_float16_t0", "uint4_ffc")
 uint4_bbc = DataType("uint4", "bfloat16_bfloat16_t0", "uint4_bbc")
 uint4_Fic = DataType("uint4", "float32_int8_t0", "uint4_Fic")
@@ -247,10 +235,26 @@ mxfp6t16 = DataType("e2m3fnuz", "e8m0_t16", "mxfp6t16")
 mxfp4t16 = DataType("e2m1fnuz", "e8m0_t16", "mxfp4t16")
 mxint8t16 = DataType("int8", "e8m0_t16", "mxint8t16")
 mxint4t16 = DataType("int4", "e8m0_t16", "mxint4t16")
+mxbf8t16s = DataType("e5m2", "e8m0_t16_t16", "mxbf8t16")
+mxfp8t16s = DataType("e4m3fn", "e8m0_t16_t16", "mxfp8t16")
+mxbf6t16s = DataType("e3m2fnuz", "e8m0_t16_t16", "mxbf6t16")
+mxfp6t16s = DataType("e2m3fnuz", "e8m0_t16_t16", "mxfp6t16")
+mxfp4t16s = DataType("e2m1fnuz", "e8m0_t16_t16", "mxfp4t16")
+mxint8t16s = DataType("int8", "e8m0_t16_t16", "mxint8t16")
+mxint4t16s = DataType("int4", "e8m0_t16_t16", "mxint4t16")
 
-# NVF4, tile size 16
+# NV version of MXFP, tile size 16 (but not really, because is is not tensor scaled as well)
 
+nvb8 = DataType("e5m2", "e4m3_t16", "nvb8")
+nvf8 = DataType("e4m3fn", "e4m3_t16", "nvf8")
+nvb6 = DataType("e3m2fnuz", "e4m3_t16", "nvb6")
+nvf6 = DataType("e2m3fnuz", "e4m3_t16", "nvf6")
 nvf4 = DataType("e2m1fnuz", "e4m3_t16", "nvf4")
+nvb8s = DataType("e5m2", "e4m3_t16_t16", "nvb8s")
+nvf8s = DataType("e4m3fn", "e4m3_t16_t16", "nvf8s")
+nvb6s = DataType("e3m2fnuz", "e4m3_t16_t16", "nvb6s")
+nvf6s = DataType("e2m3fnuz", "e4m3_t16_t16", "nvf6s")
+nvf4s = DataType("e2m1fnuz", "e4m3_t16_t16", "nvf4s")
 
 # MSFP (old school Microsoft), tile size 16, exponent scale, subtile size 2, implemented as codebooks
 # BFP16 is essentially OCP MXINT8, but with a tile size of 8
@@ -284,6 +288,48 @@ mxfp4m = DataType("cb41f01_e2m2fnuz", "e8m0_t32s4", "mxfp4m")
 mxfp4e = DataType("cb42fe0123_e3m2fnuz", "e8m0_t32s8", "mxfp4e")
 # mxfp4 shifted 4 times up or down the number line, 4 subtiles, 4.5 bpv
 mxfp4f4 = DataType("cb42f1346_e2m3fnuz", "e8m0_t32s8", "mxfp4f4")
+
+
+### sets of datatypes defined by a string
+def get_datatypes(attrs: str, maxbits: int = 16, unfiltered: tuple[DataType] = None) -> tuple[DataType]:
+    """Get a set of datatypes (as for a test)."""
+    # most dtypes are not multiscale, so that should be a default
+    if "multiscale" not in attrs:
+        attrs = "not multiscale " + attrs
+    attrs = attrs.lower().split(" ")
+    fstr = "lambda x: "
+    for attr in attrs:
+        if attr == "not":
+            fstr += "not "
+            continue
+        if not attr.startswith("is_"):
+            attr = "is_" + attr
+        fstr += f"x.{attr} and "
+    if maxbits:
+        fstr += f"x.nspec.bits <= {maxbits} and "
+    fstr = fstr[:-5]
+    return tuple(DataType.gather_registered(eval(fstr), unfiltered))
+
+# Example usage
+
+dset_unscaled = get_datatypes("unscaled float", 32)
+dset_mxfp = get_datatypes("mxfp")
+dset_mxfp2d = get_datatypes("mxfp2d")
+dset_mxfp2d16 = get_datatypes("mxfp2d16")
+dset_nvfp = get_datatypes("nvfp")
+dset_nvfp2d = get_datatypes("nvfp2d")
+dset_tensor_e = get_datatypes("tensor float exponent")
+dset_tensor_f = get_datatypes("tensor float not exponent")
+dset_tensor_ie = get_datatypes("tensor int exponent")
+dset_tensor_if = get_datatypes("tensor int not exponent")
+dset_tensor_uff = get_datatypes("tensor uint not exponent zero_float")
+dset_tensor_ufi = get_datatypes("tensor uint not exponent not zero_float")
+dset_channel_e = get_datatypes("channel float exponent")
+dset_channel_f = get_datatypes("channel float not exponent")
+dset_channel_ie = get_datatypes("channel int exponent")
+dset_channel_if = get_datatypes("channel int not exponent")
+dset_channel_uff = get_datatypes("channel uint not exponent zero_float")
+dset_channel_ufi = get_datatypes("channel uint not exponent not zero_float")
 
 
 def number(code: str | torch.dtype) -> NumberSpec | Codebook:
@@ -365,6 +411,7 @@ def cast(
     castmode: CastMode | str = None,
     transpose_scale: bool = False,
     return_tensor: bool = False,  # if True, return a tcast.Tensor even for virtual cast
+    return_scaled: bool = False,  # if True, return the tensor scaled even for virtual cast
 ) -> torch.Tensor | Tensor:
     """
     Virtual, actual or compressed cast of torch.Tensor to dtype.
@@ -390,7 +437,7 @@ def cast(
         tri_success = TritonCast.cast(tensor)
     # logger.info(f"tcast.cast: TritonCast requested: {tri_requested} supports: {tri_supports} success: {tri_success}")
     if tor_supports and tor_requested and not tri_success:
-        tor_success = TorchCast.cast(tensor)
+        tor_success = TorchCast.cast(tensor, keep_scaled=return_scaled)
     # logger.info(f"tcast.cast: TorchCast requested: {tor_requested} supports: {tor_supports} success: {tor_success}")
     if tri_success == False:  # noqa: E712
         raise AssertionError("tcast.cast: datatype conversion FAILED in Triton")
