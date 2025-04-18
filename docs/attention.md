@@ -15,4 +15,8 @@ can be found [here](../tests/status.md#attention).
 
 [Documentation](./README.md)
 </br>
+[Testing](../tests/README.md)
+</br>
+[Examples](../examples/README.md)
+</br>
 [TensorCast Home](../README.md)

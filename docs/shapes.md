@@ -114,4 +114,8 @@ that you can't compress in two axes.*
 
 [Documentation](./README.md)
 </br>
+[Testing](../tests/README.md)
+</br>
+[Examples](../examples/README.md)
+</br>
 [TensorCast Home](../README.md)

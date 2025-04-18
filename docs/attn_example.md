@@ -106,4 +106,8 @@ values, enabling quantization to FP8 when FP8 is not supported on a platform
 
 [Documentation](./README.md)
 </br>
+[Testing](../tests/README.md)
+</br>
+[Examples](../examples/README.md)
+</br>
 [TensorCast Home](../README.md)

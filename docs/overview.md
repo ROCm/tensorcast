@@ -43,4 +43,8 @@ to 32x32=1024 (for OCP MX) which exacerbates denomralization and underflow for l
 
 [Documentation](./README.md)
 </br>
+[Testing](../tests/README.md)
+</br>
+[Examples](../examples/README.md)
+</br>
 [TensorCast Home](../README.md)

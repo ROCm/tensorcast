@@ -92,4 +92,8 @@ to create the spec), that dtype will be accessible through the NumberSpec's torc
 
 [Documentation](./README.md)
 </br>
+[Testing](../tests/README.md)
+</br>
+[Examples](../examples/README.md)
+</br>
 [TensorCast Home](../README.md)

@@ -221,8 +221,8 @@ fp4 have 2, 2, 2, and 1 positive values across the top four exponents.  This wil
 mapping roughly 70% of the time for weights.
 
 <div align="center">
-    <img src="./CB41FI_dark.png#gh-dark-mode-only", alt="CB41FI", width=200>
-    <img src="./CB41FI_light.png#gh-light-mode-only", alt="CB41FI", width=200>
+    <img src="./images/CB41FI_dark.png#gh-dark-mode-only", alt="CB41FI", width=200>
+    <img src="./images/CB41FI_light.png#gh-light-mode-only", alt="CB41FI", width=200>
 </div>
 
 This example would be encoded as `cb41fi_e2m2fnuz`, with "f" indicating a standard fp4 (e2m1) pattern, and
@@ -240,8 +240,8 @@ type number line from the top of the number line.  One or more positions can be 
 an fp4 pattern that is shifted 1, 3, 4, and 6 positions from the top of e2m3fnuz, we encode it as `cb42f1346_e2m3fnuz`.
 
 <div align="center">
-    <img src="./CB42F1346_dark.png#gh-dark-mode-only", alt="CB42F1346", width=200>
-    <img src="./CB42F1346_light.png#gh-light-mode-only", alt="CB42F1346", width=200>
+    <img src="./images/CB42F1346_dark.png#gh-dark-mode-only", alt="CB42F1346", width=200>
+    <img src="./images/CB42F1346_light.png#gh-light-mode-only", alt="CB42F1346", width=200>
 </div>
 
 The blue pattern is actual fp4, which is in position 3 relative to the top of e2m3.
@@ -260,8 +260,8 @@ would be generated for compute type e2m2: one pattern of fp4 with trailing 0, th
 this can be accomplished with the previoulsy descibed syntax: `cb41f01_e2m2fnuz`:
 
 <div align="center">
-    <img src="./CB41FM_dark.png#gh-dark-mode-only", alt="CB41FM", width=200>
-    <img src="./CB41FM_light.png#gh-light-mode-only", alt="CB41FM", width=200>
+    <img src="./images/CB41FM_dark.png#gh-dark-mode-only", alt="CB41FM", width=200>
+    <img src="./images/CB41FM_light.png#gh-light-mode-only", alt="CB41FM", width=200>
 </div>
 
 This pair of mappings represents all but one of the values of fp5, and could be expected to provide precision at
@@ -287,8 +287,8 @@ The specifier for MX6 using fp6 compute would be `cb51ie_e2m3_mx6` or `cb51ie01_
 In implicit codebooks, the  equivalent is to divide the values in the pattern by 2.
 
 <div align="center">
-    <img src="./CB51IE_dark.png#gh-dark-mode-only", alt="CB51IE", width=200>
-    <img src="./CB51IE_light.png#gh-light-mode-only", alt="CB51IE", width=200>
+    <img src="./images/CB51IE_dark.png#gh-dark-mode-only", alt="CB51IE", width=200>
+    <img src="./images/CB51IE_light.png#gh-light-mode-only", alt="CB51IE", width=200>
 </div>
 
 ### Progressive Patterns
@@ -297,12 +297,16 @@ This example shows two progressive patterns, both with offset 0, with 1 and 2 as
 compute fp6e2: `cb41p1p2_e2m3fnuz`:
 
 <div align="center">
-    <img src="./CB41P1P2_dark.png#gh-dark-mode-only", alt="CB41P1P2", width=200>
-    <img src="./CB41P1P2_light.png#gh-light-mode-only", alt="CB41P1P2", width=200>
+    <img src="./images/CB41P1P2_dark.png#gh-dark-mode-only", alt="CB41P1P2", width=200>
+    <img src="./images/CB41P1P2_light.png#gh-light-mode-only", alt="CB41P1P2", width=200>
 </div>
 
 ---
 
 [Documentation](./README.md)
+</br>
+[Testing](../tests/README.md)
+</br>
+[Examples](../examples/README.md)
 </br>
 [TensorCast Home](../README.md)

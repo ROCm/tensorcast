@@ -88,4 +88,8 @@ to have the same level of support for *virtual* in TritonCast as in TorchCast.
 
 [Documentation](./README.md)
 </br>
+[Testing](../tests/README.md)
+</br>
+[Examples](../examples/README.md)
+</br>
 [TensorCast Home](../README.md)

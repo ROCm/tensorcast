@@ -38,4 +38,8 @@ same shape as the input tensor, with each bit stored as `torch.bool`, which is 8
 
 [Documentation](./README.md)
 </br>
+[Testing](../tests/README.md)
+</br>
+[Examples](../examples/README.md)
+</br>
 [TensorCast Home](../README.md)

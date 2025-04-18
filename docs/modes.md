@@ -225,4 +225,8 @@ that are not supported in `tl.scaled_dot` may need a performant fused GEMM kerne
 
 [Documentation](./README.md)
 </br>
+[Testing](../tests/README.md)
+</br>
+[Examples](../examples/README.md)
+</br>
 [TensorCast Home](../README.md)

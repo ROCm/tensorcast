@@ -151,4 +151,8 @@ This table shows the segments and the types of the scale tensors in the `tcast.T
 
 [Documentation](./README.md)
 </br>
+[Testing](../tests/README.md)
+</br>
+[Examples](../examples/README.md)
+</br>
 [TensorCast Home](../README.md)
