@@ -45,7 +45,7 @@ class Tensor:
         self.original_shape, self.original_device, self.original_dtype = tensor.size(), tensor.device, tensor.dtype
         self.output = self.tenscale = self.scale = self.zero = self.meta = self.mask = None
         self.transpose_scale = transpose_scale
-        self.is_compressed = self.quantized = False
+        self.is_compressed = self.quantized = self.has_meta = False
         self.shape_transforms = []
         self.shape_info = {}
         if precast:
@@ -240,5 +240,7 @@ class Tensor:
                     setattr(self, key, value)
                 else:
                     assert hasattr(self, key) and isinstance(getattr(self, key), torch.Tensor)
+                    if key == "meta":
+                        self.has_meta = True
                     getattr(self, key).copy_(value)
         self.quantized = True
