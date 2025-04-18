@@ -12,7 +12,11 @@ import tests.base_kernel as K
 import tests.base_misc as MISC
 import tests.base_v2 as V2
 import tests.utils as U
+import tests.base_mx as MX
+import tests.base_sqt as SQT
+import tests.base_v2 as V2
 
+TEST_DICT = {"mx": MX, "sqt": SQT, "v2": V2}
 
 def run_attention_configuration():
     num_methods = len(A.ALL_CONFIGS)
@@ -100,10 +104,14 @@ def run_torchcast_unscaled():
     import tests.test_torchcast as TORCAST
     for compare in ["v2", "sqt", "mx"]:
         for dtype in tcast.DataType.gather_registered(lambda x: x.nspec.torch_dtype is not None and x.is_unscaled):
-            for torch_dtype in (torch.float32, torch.float16):
-                for shape in U.SHAPES_2D:
-                    for roundmode in U.ROUNDMODE_E:
-                        TORCAST._torchcast_generic(compare, dtype, torch_dtype, shape, roundmode)
+            if TEST_DICT[compare].supported(dtype):
+                for torch_dtype in (torch.float32, torch.float16):
+                    for shape in U.SHAPES_2D:
+                        for roundmode in U.ROUNDMODE_E:
+                            print(f"Running {compare} {dtype} {torch_dtype} {shape} {roundmode}")
+                            TORCAST._torchcast_generic(compare, dtype, torch_dtype, shape, roundmode)
+            else:
+                print(f"Skipping: {compare} does not support {dtype}")
 
 
 def run_kernel_apply_incoherence():
