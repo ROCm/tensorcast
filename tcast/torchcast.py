@@ -8,13 +8,14 @@ from collections.abc import Callable
 
 import torch
 
-from .common import STD_DTYPES, CastMode, Modes, RoundMode, ScaleMode
+from .common import EPS, CastMode, Modes, RoundMode, ScaleMode
 from .datatype import DataType
 from .number import NumberSpec
 from .tensor import Tensor
 from .utils import get_logger
 
 logger = get_logger("tcast")
+
 
 
 class TorchCast:
@@ -97,7 +98,7 @@ class TorchCast:
         tensor.update(output=out * scale)
 
     @staticmethod
-    def apply_scales(tensor: Tensor) -> None:
+    def apply_scales(tensor: Tensor, keep_scaled: bool = False) -> None:
         """Given scales, return cast tensor."""
         nspec, sspec = tensor.dtype.nspec, tensor.dtype.sspec
         assert tensor.scale is not None and not nspec.is_codebook and not sspec.is_subtile
@@ -107,16 +108,22 @@ class TorchCast:
         if nspec.is_uint:
             assert zero is not None
             assert sspec.scale.is_float
-            eps = torch.finfo(torch.float32).eps
             if sspec.zero.is_float:
-                x = scale * TorchCast.round((x + zero) / scale.clamp_min(eps)).clamp(0, maxint) - zero
+                x = scale * TorchCast.round((x + zero) / scale.clamp_min(EPS)).clamp(0, maxint) - zero
             else:
-                x = scale * ((TorchCast.round(x / scale.clamp_min(eps)) + zero).clamp(0, maxint) - zero)
+                x = scale * ((TorchCast.round(x / scale.clamp_min(EPS)) + zero).clamp(0, maxint) - zero)
         elif sspec.scale.is_float:
             if nspec.is_float:
-                x = TorchCast.round(x * scale).clamp(-maxfloat, maxfloat) / scale
+                # scale up to nspec range
+                x *= scale
+                valexp = TorchCast.get_exponents(x).clamp_min(nspec.emin)  # get the independent exponents, clipped to emin
+                rscale = (nspec.mbits - valexp).exp2()
+                # scale to do rounding, then back to nspec range
+                x = (TorchCast.round(x * rscale) / rscale).clamp(-maxfloat, maxfloat)
+                if not keep_scaled:
+                    x /= scale
             else:
-                x = TorchCast.round(x / scale.clamp_min(eps)).clamp(minint, maxint) * scale
+                x = TorchCast.round(x / scale.clamp_min(EPS)).clamp(minint, maxint) * scale
         else:
             if sspec.scale.is_exponent:
                 scale_mask = scale == 0
@@ -124,10 +131,12 @@ class TorchCast:
                 scale[scale_mask] = 1.0
             elif sspec.scale.is_int:
                 scale = scale.exp2()
-            x /= scale  # scale x into range of the target dtype
+            x /= scale  # scale x into the nspec range
             valexp = TorchCast.get_exponents(x).clamp_min(nspec.emin)  # get the independent exponents, clipped to emin
             rscale = (nspec.mbits - valexp).exp2()
-            x = TorchCast.round(x * rscale).div(rscale).clamp(-maxfloat, maxfloat) * scale
+            x = (TorchCast.round(x * rscale) / rscale).clamp(-maxfloat, maxfloat)
+            if not keep_scaled:
+                x *= scale
         tensor.update(output=x)
 
     @staticmethod
@@ -173,7 +182,7 @@ class TorchCast:
                 absmax = x.abs().amax(dim=dim, keepdim=True)
                 maxexp = TorchCast.get_exponents(absmax)  # this constitutes the FLOOR method
                 if Modes.scale == ScaleMode.CEIL:
-                    maxexp = (absmax + torch.finfo(x.dtype).eps).log2().ceil().int()
+                    maxexp = (absmax + torch.finfo(x.dtype).EPS).log2().ceil().int()
                 elif Modes.scale == ScaleMode.OPTION3:
                     # scale absmax into pure mantissa range [0, 2), then up by mbits to RNE
                     ascale = (maxexp - nspec.mbits).exp2()
@@ -201,20 +210,15 @@ class TorchCast:
         if tensor:
             return (
                 Modes.cast == CastMode.VIRTUAL
-                and tensor.input.dim() == 2
-                and tensor.input.dtype in STD_DTYPES
+                and tensor.input.dim() <= 2
                 and not tensor.needs_pad
-                and not tensor.dtype.is_square
+                and tensor.dtype.nspec.is_float
             )
         if dtype:
-            return (
-                Modes.cast == CastMode.VIRTUAL
-                and dtype.nspec.torch_dtype in STD_DTYPES
-                and not dtype.is_square
-            )
+            return Modes.cast == CastMode.VIRTUAL and dtype.nspec.is_float
 
     @staticmethod
-    def cast(tensor: Tensor) -> bool:
+    def cast(tensor: Tensor, keep_scaled: bool = False) -> bool:
         """Cast interface using PyTorch ops."""
         if tensor.dtype.is_unscaled:
             TorchCast.cast_unscaled(tensor)
@@ -226,7 +230,7 @@ class TorchCast:
             if tensor.dtype.is_codebook:
                 TorchCast.apply_codebook(tensor)
             else:
-                TorchCast.apply_scales(tensor)
+                TorchCast.apply_scales(tensor, keep_scaled)
         return tensor.quantized
 
     @staticmethod
