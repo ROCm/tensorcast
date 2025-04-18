@@ -79,6 +79,16 @@ def maybe_contiguous(x: torch.Tensor): return x.contiguous() if x is not None an
 # fmt: on
 
 
+# filter a datatype_set
+def filter_dset(dset, maxbits: int = None, minbits: int = None) -> tuple:
+    """Filter a datatype_set by max and min bits."""
+    if maxbits is not None:
+        dset = tuple(d for d in dset if d.nspec.bits <= maxbits)
+    if minbits is not None:
+        dset = tuple(d for d in dset if d.nspec.bits >= minbits)
+    return dset
+
+
 def triton_fp8_support() -> int:
     """Check if what Triton FP8 support is on this device."""
     # HACK ALERT! We need to know what FP8 support we have in Triton,
