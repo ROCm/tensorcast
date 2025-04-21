@@ -63,7 +63,7 @@ def initialize(
     logname: str = None,
     seed: int = None,
 ) -> dict:
-    """For setting default modes and other .  Optional."""
+    """For setting default modes and other stuff.  Optional."""
     if logname:
         get_logger(logname, True)
     if device is not None:
@@ -108,9 +108,9 @@ def set_defaults(device: str = "cuda", precision: int = 8, logname: str = "tcast
 ### unscaled
 
 # torch tensor dtypes
-float32 = DataType(name=("e8m23", "float32"))
-float16 = DataType(name=("e5m10", "float16"))
-bfloat16 = DataType(name=("e7m8", "bfloat16"))
+float32 = e8m23 = DataType(name=("e8m23", "float32"))
+float16 = e5m10 = DataType(name=(("e5m10", "float16")))
+bfloat16 = e8m7 = DataType(name=(("e8m7", "bfloat16")))
 float8_e5m2 = bf8 = e5m2fn = DataType(name=("e5m2", "bf8", "float8_e5m2"))
 float8_e4m3fn = fp8 = e4m3fn = DataType(name=("e4m3fn", "fp8", "float8_e4m3fn"))
 float8_e5m2fnuz = bf8n = e5m2fnuz = DataType(name=("e5m2fnuz", "bf8n", "float8_e5m2fnuz"))
