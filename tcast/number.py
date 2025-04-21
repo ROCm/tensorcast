@@ -44,7 +44,6 @@ class NumberSpec:
         self.finfo: Finfo = None
         self.emax: int = None
         self.emin: int = None
-        self._bias_hack: int = 0
 
         # 1.  Handle the case of the spec defined by a torch.dtype
         if isinstance(code, torch.dtype):
@@ -60,7 +59,7 @@ class NumberSpec:
             )
 
         # 3.  Check for instrisic non-standard bias
-        self._bias_hack = int(name.startswith("float8") and name.endswith("fnuz"))  # implicit non-standard bias for torch fnuz
+        name = "e4m3b8fnuz" if name == "float8_e4m3fnuz" else "e5m2b16fnuz" if name == "float8_e5m2fnuz" else name
         name = name.removeprefix("float8").removeprefix("_")
 
         # 4.  Handle P3109-style string codes; these are a hybrid of "fn" and "fnuz" that we call "inuz"
@@ -107,7 +106,7 @@ class NumberSpec:
                     self.infnan = get_enum(InfNaN, m.group(4))
                 # the following kludge was brought to you by OCP unsigned floating point "exponent" specs
                 self.signed = not (self.infnan == InfNaN.IEEE and self.mbits == 0)
-                self.bias = 2 ** (self.ebits - 1) - 1 + self._bias_hack if self.bias is None else int(self.bias[1:])
+                self.bias = 2 ** (self.ebits - 1) - 1 if self.bias is None else int(self.bias[1:])
             else:
                 raise ValueError(f"NumberSpec: code {name} is not a valid format.")
         if self.bits > 32:
@@ -144,8 +143,6 @@ class NumberSpec:
     @property
     def name(self) -> str: return self._name
     @property
-    def std_bias(self) -> bool: return self.bias == 2**(self.ebits - 1) - 1 - self._bias_hack
-    @property
     def bits(self) -> int: return self.ebits + self.mbits + int(self.signed)
     @property
     def is_float(self) -> bool: return self.ebits > 1 and self.signed
@@ -164,7 +161,7 @@ class NumberSpec:
     @property
     def rtol(self) -> float: return 1.0
     @property
-    def atol(self) -> float: return 2**self.emax // 2**self.mbits
+    def atol(self) -> float: return 2**self.emax / 2**self.mbits
     # fmt: on
 
     def _find_torch_dtype(self) -> torch.dtype | None:
@@ -213,7 +210,7 @@ class NumberLine:
     """All possible values for a number specification."""
 
     def __init__(self, nspec: NumberSpec):
-        if nspec.bits > 9:
+        if nspec.bits > 12:
             raise ValueError(f"NumberSpec: too many number line values for {nspec.bits} bits")
         if not (nspec.is_float or nspec.is_int):
             raise ValueError("NumberSpec: number line must be for float or float-like numbers.")
@@ -325,7 +322,7 @@ class Codebook(NumberSpec):
         vals = torch.tensor(self.mappings, dtype=torch_dtype, device=device)
         mids = torch.tensor(self.midpoints, dtype=torch_dtype, device=device)
         if self.symmetric:
-            vals, mids = vals[:, vals.size(-1) // 2:], mids[:, vals.size(-1) // 2:]
+            vals, mids = vals[:, vals.size(-1) // 2 :], mids[:, vals.size(-1) // 2 :]
         return vals, mids
 
     def mapname(self, index: int) -> str:
