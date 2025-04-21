@@ -262,6 +262,7 @@ class Codebook(NumberSpec):
             cbname, compname = subcodes
         elif len(subcodes) == 3:
             cbname, compname, label = subcodes
+        self.cbname, self.label = cbname, label
         if not (isinstance(code, str) and code.startswith("cb") and cbname is not None and compname is not None):
             raise ValueError(
                 f"NumberSpec codebook code {code} has one of two forms: <cbname>_<compspec> or <cbname>_<compspec>_<label>."
@@ -279,7 +280,6 @@ class Codebook(NumberSpec):
                 self.implicit = True
         else:
             raise ValueError(f"NumberSpec codebook code {code} is invalid.")
-        self.cbname, self.label = cbname, label
 
     # fmt: off
     @property
@@ -312,7 +312,7 @@ class Codebook(NumberSpec):
             raise ValueError(f"NumberSpec.add_mapping: some values are not representable in {self.name}")
         self.symmetric = self.symmetric and mapping[: len(mapping) // 2] == [-v for v in reversed(mapping[len(mapping) // 2 :])]
         self.mappings.append(mapping)
-        self.midpoints.append([(mapping[i] + mapping[i + 1]) / 2.0 for i in range(len(mapping) - 1)].append(self.finfo.midmax))
+        self.midpoints.append([(mapping[i] + mapping[i + 1]) / 2.0 for i in range(len(mapping) - 1)] + [self.finfo.midmax])
         self.mapnames.append(mapname if mapname else str(len(self.mappings) - 1))
 
     def add_mappings(self, mappings: list[list[float]], mapnames: list[str] = None):
@@ -322,9 +322,10 @@ class Codebook(NumberSpec):
 
     def get_codebook(self, torch_dtype: torch.dtype, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
         """Return the codebook as a tensor."""
-        vals = [i[len(self.mappings[i]) // 2 :] for i in self.mappings] if self.symmetric else self.mappings
-        mids = [i[len(self.midpoints[i]) // 2 :] for i in self.midpoints] if self.symmetric else self.midpoints
-        vals, mids = torch.tensor(vals, dtype=torch_dtype, device=device), torch.tensor(mids, dtype=torch_dtype, device=device)
+        vals = torch.tensor(self.mappings, dtype=torch_dtype, device=device)
+        mids = torch.tensor(self.midpoints, dtype=torch_dtype, device=device)
+        if self.symmetric:
+            vals, mids = vals[:, vals.size(-1) // 2:], mids[:, vals.size(-1) // 2:]
         return vals, mids
 
     def mapname(self, index: int) -> str:
