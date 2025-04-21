@@ -114,7 +114,7 @@ bfloat16 = DataType(name=("e7m8", "bfloat16"))
 float8_e5m2 = bf8 = e5m2fn = DataType(name=("e5m2", "bf8", "float8_e5m2"))
 float8_e4m3fn = fp8 = e4m3fn = DataType(name=("e4m3fn", "fp8", "float8_e4m3fn"))
 float8_e5m2fnuz = bf8n = e5m2fnuz = DataType(name=("e5m2fnuz", "bf8n", "float8_e5m2fnuz"))
-float8_e4m3fnuz = fp8n = e4m3fnuz = DataType(name=("e4m3fnuz", "fp8n", "float8_e4m3fnuz"))
+float8_e4m3fnuz = fp8n = e4m3b8fnuz = DataType(name=("e4m3b8fnuz", "fp8n", "float8_e4m3fnuz"))
 
 # IEEE P3109 8-bit unscaled datatypes
 binary8p1 = DataType("e7m0b63inuz", name="binary8p1")

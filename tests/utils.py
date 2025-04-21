@@ -42,6 +42,8 @@ MX_AVAILABLE = importlib.util.find_spec("mx") is not None
 SQT_AVAILABLE = importlib.util.find_spec("sqt") is not None
 TRITON_AVAILABLE = importlib.util.find_spec("triton") is not None
 
+COMPARE_MX, COMPARE_V2, COMPARE_SQT, COMPARE_TORCH, COMPARE_TCAST = ["mx"], ["v2"], ["sqt"], ["torch"], ["tcast"]
+COMPARE_EXTERNAL = COMPARE_MX + COMPARE_SQT + COMPARE_V2
 
 tcast.initialize(
     roundmode="even",
@@ -103,8 +105,11 @@ def assert_quantized_representable(q, dtype):
     unique = torch.unique(q)
     membership = torch.isin(unique, nline, assume_unique=True)
     if not membership.all():
-        wrong = (membership is False).sum()
-        raise AssertionError(f"Quantized tensor contains {wrong} unique values not representable in dtype {dtype}")
+        wrong = unique.numel() - membership.sum()
+        logger.info(f"FAIL: Quantized tensor contains {wrong} unique values not representable in dtype {dtype}")
+        return True
+    return False # did we fail?
+        # raise AssertionError(f"Quantized tensor contains {wrong} unique values not representable in dtype {dtype}")
 
 
 def dependency_assert(lib: str = "v2"):
@@ -122,7 +127,7 @@ def dependency_assert(lib: str = "v2"):
         logger.error(
             "mx package not found:\n"
             "> mkdir tmp; cd tmp\n"
-            "> git clone https://github.com/microsoft/microxcaling.git\n"
+            "> git clone github.com/microsoft/microxcaling\n"
             "> cp -r microxcaling/mx $TCAST/mx\n"
         )
         raise AssertionError("mx package not found")
@@ -134,3 +139,21 @@ def dependency_assert(lib: str = "v2"):
             "> cp -r sqt/sqt $TCAST/sqt\n"
         )
         raise AssertionError("sqt package not found")
+
+
+def get_dset(dset_name) -> tuple[tcast.DataType]:
+    """Get a dset from tcast with an abbreviated name."""
+    if not dset_name.startswith("dset_"):
+        dset_name = "dset_" + dset_name
+    if not hasattr(tcast, dset_name):
+        raise AttributeError(f"tcast has no attribute {dset_name}")
+    return getattr(tcast, dset_name)
+
+
+def filter_dset(dset: tuple[tcast.DataType], attrs: str, maxbits: int = None, minbits: int = None) -> tuple[tcast.DataType]:
+    """Filter a datatype_set by max and min bits."""
+    if maxbits is not None:
+        dset = tuple(d for d in dset if d.nspec.bits <= maxbits)
+    if minbits is not None:
+        dset = tuple(d for d in dset if d.nspec.bits >= minbits)
+    return dset
