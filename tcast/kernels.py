@@ -59,7 +59,7 @@ def modify_exponent(x, y, replace: bool = False):
     """Modify the exponent of a float. dir is 1 for add, -1 for subtract, 0 for replace."""
     # y is unbiased exponent or exponent offest, type int32
     tl.device_assert(x.dtype == tl.float32 or x.dtype == tl.uint32, "modify_exponent input must be fp32 or uint32")
-    xexp = get_exponent(x, unbiased=False) # get biased exponents to check for special case of 0
+    xexp = get_exponent(x, unbiased=False)  # get biased exponents to check for special case of 0
     mask = xexp == 0
     if replace:
         xexp = y + 127
@@ -69,7 +69,7 @@ def modify_exponent(x, y, replace: bool = False):
 
 
 @triton.jit
-def _round_device(x, roundmode, seed, offset): # TODO(ericd): get libdevice to work
+def _round_device(x, roundmode, seed, offset):  # TODO(ericd): get libdevice to work
     """Round floating point using libdevice."""
     if roundmode == RMODE_STOCHASTIC:
         rand_ptr = tl.randn(seed, offset)
@@ -78,7 +78,7 @@ def _round_device(x, roundmode, seed, offset): # TODO(ericd): get libdevice to w
         return libdevice.rint(x)
     if roundmode == RMODE_AWAY:
         return libdevice.round(x)
-    trunc = libdevice.trunc(x) # ROUND_ZERO
+    trunc = libdevice.trunc(x)  # ROUND_ZERO
     return tl.where(x - trunc == 0.5, trunc, libdevice.round(x))
 
 
@@ -91,7 +91,7 @@ def _round_bitcast(x, denorm, mbits, roundmode, seed, offset):
     x = as_uint(x)
     if roundmode == RMODE_AWAY:  # ties away from zero
         x += roundbit
-    elif roundmode == RMODE_STOCHASTIC: # TODO(ericd): get this to work
+    elif roundmode == RMODE_STOCHASTIC:  # TODO(ericd): get this to work
         x += tl.randint(seed, x) & mask
     else:
         tie = ((roundbit - 1) & x) == 0
@@ -110,7 +110,7 @@ def round(x, denorm, emax, mbits, roundmode, use_bitcast, seed, offset):
     else:
         x = modify_exponent(x, (mbits - denorm) - emax)  # scale to exponent 0, then up to account for mbits and denorm
         x = _round_device(x, roundmode, seed, offset)
-        x = modify_exponent(x, emax - (mbits - denorm)) # descale the mbits and scale up to EMAX for clamp
+        x = modify_exponent(x, emax - (mbits - denorm))  # descale the mbits and scale up to EMAX for clamp
     return x
 
 
@@ -162,7 +162,7 @@ def get_shared_exponent(x, scalemode, emax, maxfloat, midmax, biased=False):
     # shared_exp is unbiased exponent (maxexp or maxexp + 1), stored as int32
     absmax = tl.max(tl.abs(x.to(tl.float32)))
     shared_exp = get_exponent(absmax)
-    absmax = modify_exponent(absmax, emax, replace=True) # scale absmax to top target dtype emax
+    absmax = modify_exponent(absmax, emax, replace=True)  # scale absmax to top target dtype emax
     increment = tl.zeros_like(shared_exp)
     if scalemode == SMODE_CEIL:
         increment[as_uint(absmax) & 0x007FFFFF != 0] = 1
