@@ -8,7 +8,6 @@ import json
 import math
 from pathlib import Path
 
-import numpy as np
 import torch
 import triton
 import triton.language as tl
@@ -21,11 +20,6 @@ from .number import NumberSpec
 from .utils import convert_enum, get_logger, getenv, is_power_of_2, triton_fp8_support
 
 logger = get_logger("tcast")
-
-
-# def is_class(obj, class_type):
-#     """Check if the object is a subclass, even if it is not a class."""
-#     return inspect.isclass(obj) and issubclass(obj, class_type)
 
 #####
 ##### The Triton attention interface starts here
@@ -106,9 +100,17 @@ QUANT_TLTYPE = ("fp8e5", "fp8e5b16", "fp8e4nv", "fp8e4b8")
 
 # fmt: off
 @triton.jit
-def enabled(ACODE: tl.constexpr) -> bool: return ACODE.value != 0
+def enabled(ACODE) -> bool: return ACODE != 0
 @triton.jit
-def shift_mask(ACODE: tl.constexpr, POS: tl.constexpr, MASK: tl.constexpr): return ACODE.value >> POS.value & MASK.value
+def shift_mask(ACODE, POS, MASK): return (ACODE >> POS) & MASK
+# def shift_mask(ACODE: tl.constexpr, POS: tl.constexpr, MASK: tl.constexpr):
+#     if isinstance(ACODE, tl.constexpr):
+#         ACODE = ACODE.value
+#     if isinstance(POS, tl.constexpr):
+#         POS = POS.value
+#     if isinstance(MASK, tl.constexpr):
+#         MASK = MASK.value
+#     return (ACODE >> POS) & MASK
 @triton.jit
 def fp8_code(ACODE: tl.constexpr) -> int: return shift_mask(ACODE, FP8_TYPE_POS, FP8_TYPE_MASK)
 @triton.jit
@@ -248,7 +250,7 @@ def scale_and_quantize(x, imatrix, ACODE: tl.constexpr, TCODE: tl.constexpr, see
     tl.device_assert(CMODE != K.CMODE_COMPRESSED or NCODE != QUANT_E2M1FNUZ, "Packing not implemented yet")
 
     # get the scale (unbiased if exponent)
-    scale = K.get_scale(x, IS_EXP, EMAX, scalemode(ACODE), MAXFLOAT, number_midmax(NCODE))
+    scale = K.get_scale(x, IS_EXP, EMAX, False, scalemode(ACODE), MAXFLOAT, number_midmax(NCODE))
 
     # quantize
     out = K.quantize_float(
@@ -385,7 +387,7 @@ class AttentionCode:
         return common, index, dtype, torch_dtype
 
     @classmethod
-    def _get_value(cls, code: np.int64, key: str):
+    def _get_value(cls, code: int, key: str):
         """From a code and a key, decode the value."""
         assert key in cls.CODE_POSITIONS, "Unknown key {key} for decoding"
         start, mask, type_or_lookup, _ = cls.CODE_POSITIONS.get(key)
@@ -409,13 +411,13 @@ class AttentionCode:
         return value
 
     @classmethod
-    def _set_value(cls, key: str, value) -> np.int64:
+    def _set_value(cls, key: str, value) -> int:
         """Fron an attribute {key: value} return a code to add to the overall code."""
         if key not in cls.CODE_POSITIONS:  # this includes code, shortcut, and json_path
-            return np.int64(0)
+            return 0
         shift, mask, type_or_lookup, _ = cls.CODE_POSITIONS.get(key)
         if type_or_lookup is None:
-            return np.int64(0)  # do not encode
+            return 0  # do not encode
         if e := (convert_enum(type_or_lookup, value, int)) is not None:
             value = e
         # if is_class(type_or_lookup, Enum):
@@ -444,7 +446,7 @@ class AttentionCode:
                 raise ValueError(f"Invalid block size: {value[0]}, {value[1]}, must be square or vector")
             value = combined
             mask = mask | (1 << sq_shift)
-        return np.int64((value & mask) << shift)
+        return int((value & mask) << shift)
 
     def __init__(self, **kwargs):
         self.code = self.encode(kwargs)
@@ -452,7 +454,7 @@ class AttentionCode:
     @classmethod
     def encode(cls, attrs: dict) -> int:
         """Encode the attributes into a 64-bit integer."""
-        code = np.int64(0)
+        code = 0
         for key, value in attrs.items():
             code |= cls._set_value(key, value)
         return code
@@ -487,7 +489,7 @@ class Attention:
 
     def __init__(
         self,
-        code: np.int64 = None,
+        code: int = None,
         json_path: Path | str = None,
         shortcut: str = None,
         block_size: tuple[int, int] = (0, 0),
@@ -579,7 +581,7 @@ class Attention:
             attrs = json_attrs(self.json_path)
         elif self.shortcut is not None:
             attrs = shortcut_attrs(self.shortcut)
-        elif (code := getenv("code", None, np.int64, "TC")) is not None:
+        elif (code := getenv("code", None, int, "TC")) is not None:
             attrs = AttentionCode.decode(code)
         elif (json_path := getenv("json_path", None, Path, "TC")) is not None:
             attrs = json_attrs(json_path)
@@ -668,7 +670,7 @@ class Attention:
     def __str__(self) -> str:
         return repr(self)
 
-    def to_code(self) -> np.int64:
+    def to_code(self) -> int:
         """Generate a code from the Attention attributes."""
         attrs = self.__dict__.copy()
         attrs.pop("code", None)
@@ -676,6 +678,10 @@ class Attention:
         attrs.pop("shortcut", None)
         encoder = AttentionCode(**attrs)
         return encoder.code
+
+    def to_constexpr(self) -> tl.constexpr:
+        """Generate a code from the Attention attributes."""
+        return tl.constexpr(self.to_code())
 
     def dtype_from_index(self, index: int) -> DataType:
         """Return the datatype for the given index."""
