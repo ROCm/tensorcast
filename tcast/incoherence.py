@@ -72,7 +72,7 @@ class ICP:
             return key
 
         if not isinstance(torch_dtype, torch.dtype):
-            torch_dtype = DataType(name=torch_dtype).torch_dtype
+            torch_dtype = DataType(name=str(torch_dtype)).nspec.torch_dtype
         if torch_dtype not in STD_DTYPES:
             raise ValueError(f"Invalid imatrix dtype (must be float32, float16, or bfloat16): {torch_dtype}")
         if not any(size == 2**x for x in range(2, 8)):
