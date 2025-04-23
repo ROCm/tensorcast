@@ -12,37 +12,39 @@ import triton
 import triton.language as tl
 
 import tcast
-import tcast.snippets as lp
+import tcast.attention as attn
 
 
 @triton.jit
 def get_block_ptr(base, sz0, sz1, st0, st1, BLOCK_Q: tl.constexpr, off0, off1):
     return tl.make_block_ptr(
-        base=base, shape=(sz0, sz1), strides=(st0, st1), offsets=(off0, off1), block_shape=(BLOCK_Q, BLOCK_Q), order=(1, 0),
+        base=base, shape=(sz0, sz1), strides=(st0, st1), offsets=(off0, off1), block_shape=(BLOCK_Q, BLOCK_Q), order=(1, 0)
     )
 
+
 @triton.jit
-def simple_qdot(acc, qptr, kptr, imatrix, LPCODE: tl.constexpr):
+def simple_qdot(acc, qptr, kptr, imatrix, ACODE: tl.constexpr):
     """Simple dot product kernel, both quantized, no stochastic rounding, ICP optional."""
-    qq, qs = lp.scale_and_quantize(qptr, imatrix, LPCODE, lp.Q_INDEX)
-    kq, ks = lp.scale_and_quantize(kptr, imatrix, LPCODE, lp.K_INDEX, trans=True)
+    qq, qs = attn.scale_and_quantize(qptr, imatrix, ACODE, attn.Q_INDEX)
+    kq, ks = attn.scale_and_quantize(kptr, imatrix, ACODE, attn.K_INDEX, trans=True)
     acc += tl.dot(qq, tl.trans(kq)) / (qs * ks)
     return acc
 
+
 @triton.jit
-def example_kernel_qdot(acc, qptr, qqptr, qsptr, kptr, kqptr, ksptr, LPCODE: tl.constexpr, imatrix, seed, offset):
+def example_kernel_qdot(acc, qptr, qqptr, qsptr, kptr, kqptr, ksptr, ACODE: tl.constexpr, imatrix, seed, offset):
     """Inner kernel for QK dot product, called from example_kernel."""
     # q and k can be loaded at any time before the scale_and_quantize call.
     q = tl.load(qptr)
     k = tl.load(kptr)
-    if not lp.enabled(LPCODE):
+    if not attn.enabled(ACODE):
         # we must be baselining
         return acc + tl.dot(q, tl.trans(k))
     # if both q and k are quantized to fp8, we can use the simple method:
-    #      return acc + simple_qdot(acc, qptr, kptr, imatrix, LPCODE)
+    #      return acc + simple_qdot(acc, qptr, kptr, imatrix, ACODE)
     # otherwise, complexity begets complexity
-    call_sq_for_q, quantq, is_icp = lp.needs_quant_or_icp(LPCODE, lp.Q_INDEX)
-    quantk = lp.needs_quant(LPCODE, lp.K_INDEX)
+    call_sq_for_q, quantq, is_icp = attn.needs_quant_or_icp(ACODE, attn.Q_INDEX)
+    quantk = attn.needs_quant(ACODE, attn.K_INDEX)
     call_sq_for_k = quantk or is_icp
     if not (quantq or quantk):
         # if we are not quantizing either, just the regular dot product
@@ -50,9 +52,9 @@ def example_kernel_qdot(acc, qptr, qqptr, qsptr, kptr, kqptr, ksptr, LPCODE: tl.
     # ICP is for both q and k or neither; if one is unquantized but both need ICP, we need to quantize
     qq, qs, kq, ks = q, 1.0, k, 1.0
     if call_sq_for_q:
-        qq, qs = lp.scale_and_quantize(qptr, imatrix, LPCODE, lp.Q_INDEX, seed, offset, trans=False)
+        qq, qs = attn.scale_and_quantize(q, imatrix, ACODE, attn.Q_INDEX, seed, offset, trans=False)
     if call_sq_for_k:
-        kq, ks = lp.scale_and_quantize(kptr, imatrix, LPCODE, lp.K_INDEX, seed, offset, trans=True)
+        kq, ks = attn.scale_and_quantize(k, imatrix, ACODE, attn.K_INDEX, seed, offset, trans=True)
     # at this point, do the quantized dot for one or both quantized
     if quantq and quantk:
         # typical case
@@ -75,15 +77,18 @@ def example_kernel_qdot(acc, qptr, qqptr, qsptr, kptr, kqptr, ksptr, LPCODE: tl.
             tl.store(ksptr, ks)
     return acc
 
+
 # fmt: off
 @triton.jit
 def example_kernel(
     Q, Qq, Qs, K, Kq, Ks, Out, Imatrix,
     q_sz_m, q_sz_d, q_st_m, q_st_d, k_sz_n, k_sz_d, k_st_n, k_st_d, o_sz_m, o_sz_n, o_st_m, o_st_n,
     qq_st_m, qq_st_d, qs_st_m, qs_st_d, kq_st_n, kq_st_d, ks_st_n, ks_st_d, philox_seed, philox_offset,
-    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_D: tl.constexpr, BLOCK_Q: tl.constexpr, LPCODE: tl.constexpr,
+    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_D: tl.constexpr, BLOCK_Q: tl.constexpr, ACODE: tl.constexpr,
 ):
     """Main kernel for QK dot product, called from example_launch."""
+    if not isinstance(ACODE, tl.constexpr):
+        ACODE = tl.constexpr(ACODE)
     if Imatrix is not None:
         offs_q = tl.arange(0, BLOCK_Q)
         imatrix = tl.load(Imatrix + offs_q[:, None] * BLOCK_Q + offs_q[None, :])
@@ -96,14 +101,14 @@ def example_kernel(
     n_offset = start_n * BLOCK_N
     NUMQ: tl.constexpr = tl.cdiv(BLOCK_D, BLOCK_Q)
     q_blk_ptr = get_block_ptr(Q, q_sz_m, q_sz_d, q_st_m, q_st_d, BLOCK_Q, m_offset, 0)
-    if lp.needs_quant(LPCODE, lp.Q_INDEX):
+    if attn.needs_quant(ACODE, attn.Q_INDEX):
         qq_blk_ptr = get_block_ptr(Qq, q_sz_m, q_sz_d, qq_st_m, qq_st_d, BLOCK_Q, m_offset, 0)
         qs_blk_ptr = get_block_ptr(Qs, q_sz_m, NUMQ, qs_st_m, qs_st_d, BLOCK_Q, m_offset, 0)
     else:
         qq_blk_ptr = None
         qs_blk_ptr = None
     k_blk_ptr = get_block_ptr(K, k_sz_n, k_sz_d, k_st_n, k_st_d, BLOCK_Q, n_offset, 0)
-    if lp.needs_quant(LPCODE, lp.K_INDEX):
+    if attn.needs_quant(ACODE, attn.K_INDEX):
         kq_blk_ptr = get_block_ptr(Kq, k_sz_n, k_sz_d, kq_st_n, kq_st_d, BLOCK_Q, n_offset, 0)
         ks_blk_ptr = get_block_ptr(Ks, k_sz_n, NUMQ, ks_st_n, ks_st_d, BLOCK_Q, n_offset, 0)
     else:
@@ -120,12 +125,12 @@ def example_kernel(
         # the seed and offset are used to generate the random numbers for stochastic rounding
         acc += example_kernel_qdot(
             acc, q_blk_ptr, qq_blk_ptr, qs_blk_ptr, k_blk_ptr, kq_blk_ptr, ks_blk_ptr,
-            LPCODE, imatrix, philox_seed, philox_offset
+            ACODE, imatrix, philox_seed, philox_offset
         )
     tl.store(o_blk_ptr, acc)
 # fmt on
 
-def example_launch(lpconfig, shape, torch_dtype, im_dtype, outlier_prob, outlier_scale, outlier_range):
+def example_launch(attention, shape, torch_dtype, im_dtype, outlier_prob, outlier_scale, outlier_range):
     """Main function to run the example."""
     torch_dtype = tcast.datatype(torch_dtype).nspec.torch_dtype
     im_dtype = tcast.datatype(im_dtype).nspec.torch_dtype
@@ -138,32 +143,32 @@ def example_launch(lpconfig, shape, torch_dtype, im_dtype, outlier_prob, outlier
     qsize, ksize, osize = q.size(), k.size(), out.size()
     qstride, kstride, ostride = q.stride(), k.stride(), out.stride()
     # setup for quantizaton
-    if lpconfig.enabled:
-        qq, qs = lpconfig.make_quant_and_scale(q, lp.Q_INDEX)
-        kq, ks = lpconfig.make_quant_and_scale(k, lp.K_INDEX)
+    if attention.enabled:
+        qq, qs = attention.make_quant_and_scale(q, attn.Q_INDEX)
+        kq, ks = attention.make_quant_and_scale(k, attn.K_INDEX)
         qqstride, qsstride, kqstride, ksstride = qq.stride(), qs.stride(), kq.stride(), ks.stride()
     else:
         qq = qs = kq = ks = None
         qqstride = qsstride = kqstride = ksstride = (0, 0)
 
     # block sizes
-    BLOCK_Q = lpconfig.block_size[-1]
+    BLOCK_Q = attention.block_size[-1]
     BLOCK_M, BLOCK_N, BLOCK_D = 64, 64, 128
-    LPCODE = lpconfig.lp_code()
+    ACODE = attention.code
 
     assert BLOCK_M % BLOCK_Q == 0, "BLOCK_M must be multiple of BLOCK_Q"
     assert BLOCK_N % BLOCK_Q == 0, "BLOCK_N must be multiple of BLOCK_Q"
     assert BLOCK_D % BLOCK_Q == 0, "BLOCK_D must be multiple of BLOCK_Q"
 
     # incoherency matrix
-    imatrix = lpconfig.get_incoherence_matrix(BLOCK_Q, im_dtype)
+    imatrix = attention.get_incoherence_matrix(BLOCK_Q, im_dtype)
     philox_seed, philox_offset = 0x1BF58, 0x1D4B49
     # launch the kernel
     grid = (triton.cdiv(q.size(0), BLOCK_M), triton.cdiv(k.size(0), BLOCK_N))
     example_kernel[grid](
         q, qq, qs, k, kq, ks, out, imatrix,
         *qsize, *qstride, *ksize, *kstride, *osize, *ostride, *qqstride, *qsstride, *kqstride, *ksstride,
-        philox_seed, philox_offset, BLOCK_M, BLOCK_N, BLOCK_D, BLOCK_Q, LPCODE
+        philox_seed, philox_offset, BLOCK_M, BLOCK_N, BLOCK_D, BLOCK_Q, ACODE
     )
 
 def get_args(args):
@@ -176,9 +181,9 @@ def get_args(args):
     parser.add_argument("--json_path", type=Path, default=None, help="get params from json file")
     parser.add_argument("--shortcut", type=str, default=None, help="get params from predefined shortcut")
 
-    # datatypes: "None" or no argument means do not quantize, all four standard fp8 types are supported
-    parser.add_argument("--q_dtype", type=str, default="fp8", help="dtype for q, in [fp8, fp8n, bf8, bf8n, None]")
-    parser.add_argument("--k_dtype", type=str, default="fp8", help="dtype for k")
+    # datatypes: "None" or no argument means do not quantize, all four standard bf8 types are supported
+    parser.add_argument("--q_dtype", type=str, default="bf8", help="dtype for q, in [fp8, bf8n, bf8, bf8n, None]")
+    parser.add_argument("--k_dtype", type=str, default="bf8", help="dtype for k")
     # below not needed for qk GEMM example, but are for full attention
     # parser.add_argument("--v_dtype", type=str, default="fp8", help="dtype for v")
     # parser.add_argument("--p_dtype", type=str, default="fp8", help="dtype for p")
@@ -221,7 +226,6 @@ def get_configuration(args):
         return args.shortcut
     return {
         "block_size": (args.block_size, args.block_size),
-        "block_axes": (0, 1),
         "q_dtype": tcast.datatype(name=args.q_dtype) if args.q_dtype.lower() != "none" else None,
         "k_dtype": tcast.datatype(name=args.k_dtype) if args.k_dtype.lower() != "none" else None,
         # "v_dtype": tcast.datatype(name=args.v_dtype) if args.v_dtype.lower() != "none" else None,
@@ -250,6 +254,6 @@ if __name__ == "__main__":
     import sys
     args = get_args(sys.argv[1:])
     cfg_input = get_configuration(args)
-    lpconfig = tcast.configuration(cfg_input) if isinstance(cfg_input, Path | int | str) else tcast.configuration(**cfg_input)
+    attention = tcast.configuration(cfg_input) if isinstance(cfg_input, Path | int | str) else tcast.configuration(**cfg_input)
     shape, torch_dtype, im_dtype, outlier_prob, outlier_scale, outlier_range = get_example_args(args)
-    example_launch(lpconfig, shape, torch_dtype, im_dtype, outlier_prob, outlier_scale, outlier_range)
+    example_launch(attention, shape, torch_dtype, im_dtype, outlier_prob, outlier_scale, outlier_range)
