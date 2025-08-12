@@ -258,10 +258,10 @@ class NumberSpec:
                         int(m.group(3)),
                         m.group(4),
                     )
-                    if self.index_bits != 4:
-                        raise NotImplementedError(f"NumberSpec: codebook index bits must be 4, not {self.index_bits}.")
                     self.codebook, self.midpoints, self.mapnames = [], [], []
                     if self._implicit:
+                        if self.index_bits != 4:
+                            raise NotImplementedError(f"NumberSpec: codebook index bits must be 4, not {self.index_bits}.")
                         # the optional digits are for p (progressive) and are the initial increment and starting offset
                         # the initial increment defaults to 0 and the starting offset (from the top) defaults to 0
                         if matches := list(re.finditer(r"([ipsf])(\d)?(\d)?", icode)):
