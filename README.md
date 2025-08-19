@@ -23,7 +23,8 @@ Contributors:
 ## Structure
 
 The primary data structures are defined in the classes [NumberSpec](#numberspec), [ScaleSpec](#scalespec), and [DataType](#datatype).
-The conversion operators are in the static class [Cast](#cast).
+The conversion operators are in the static class [Cast](#cast).  The C++ PyTorch extension is created and managed in
+[Extension](#extension), and tools to assist in creating lookup table numberspecs and datatypes are in [LookupBuilder](#lookupbuilder).
 
 ### NumberSpec
 
@@ -32,7 +33,7 @@ and unsigned integer formats.  Some additional support to ease the conversion pr
 
 #### Inherent Types
 
-Four number categories are represented: floating point, signed integer, unsigned integer, and exponent.
+Five number categories are represented: floating point, signed integer, unsigned integer, exponent, and lookup.
 
 A floating point format includes the normal attributes: exponent width, mantissa width, bias or maximum unbiased exponent, and
 handling of infinite numbers and NaN.  All floating point numbers are signed, with an implicit bit and subnormal support.  Three
@@ -48,6 +49,10 @@ but sematically it is a biased exponent.  Therefore, a mantissa of width zero an
 biased power of two OCP scale.  This is the exponent type mentioned above.
 
 Integers are defined simply by the number of bits and the presence or absence of a sign bit.
+
+Lookup table-based number specs, in which the "values" in a storage datatype are actually indices into a vector of compute
+datatype values, are currently of interest.  These can't be described simply by a string; the lookup tables have to be
+added to the NumberSpec once created.  This is why there is a `LookupBuilder` tool to assist.
 
 #### NumberSpec String Encoding
 
@@ -67,6 +72,12 @@ are defined as `e5m2b16fnuz` and `e4m3b8fnuz`.
 
 A `NumberSpec` can alternatively be created using a `torch.dtype` or the string representation thereof.
 Since there are different existing naming conventions, the string decoder accepts but strips away any leading "torch." or "float8_".
+
+Lookup types have additional data, including the number of lookup tables, the size of each lookup table, and the compute datatype,
+which is itself a NumberSpec.  The string codes therefore are a lookup code joined to the compute numberspec code by an underscore,
+such as "l42f6431_e4m3fn".  The lookup code is "lXY*name*", where X is the number of bits in the index values, and Y is the number
+of bits to select a table.  Thus, a single table is 2<sup>X</sup> long, and there are 2<sup>Y</sup> tables.  The *name* is simply
+a unique identifier.
 
 #### Auxiliary Data
 
@@ -102,6 +113,8 @@ planned for version 2 of TensorCast.
 
 In TensorCast V1, tensor, channel, tile, and individual scales are supported, but the first three are mutually exclusive, and the tile
 is one dimensional.  Two dimensional tiles and hierarchical tensor/tile/subtile scaling are scheduled for V2.
+
+Version 2 also has support for two dimensional scaling.
 
 #### Types of Data and Scales
 
@@ -176,6 +189,14 @@ based on a CastMode, tensor characteristics, and available kernels.
 
 Public methods generally correspond to the API methods in the tcast namespace.  Private methods include \_vcast, \_round, \_cast_unscaled,
 and \_safe_frexp.
+
+### Extension
+
+TODO(ericd)
+
+### LookupBuilder
+
+TODO(ericd)
 
 ### Package Level API
 
@@ -283,10 +304,9 @@ The feature set planned for version 1 is:
 
 The feature set planned for version 2 is:
 
-- Actual (compressed) casting
-- 2D tile specifications
-- 1D and 2D subtile specifications with scale offsets from tile scale
-- tile and subtile-specific number specifications with selection metadata ("multicast")
+- *Actual (compressed) casting*
+- *2D tile specifications*
+- 1D and *2D* subtile specifications with scale offsets from tile scale
 - lookup table number specs
 - MSFP MX9/MX6/MX4 datatype support
-- hierarchical scaling (tensor + tile + subtile + individual exponents)
+- *hierarchical scaling (tensor + tile + subtile + individual exponents)*

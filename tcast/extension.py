@@ -9,7 +9,7 @@ import torch
 from torch.utils.cpp_extension import load
 
 from .datatype import DataType
-from .utils import is_float8_available, is_float8_fnuz_available
+from .utils import is_float8_available, is_gpu_available
 
 
 class Extension:
@@ -36,7 +36,7 @@ class Extension:
         is_rocm = (
             hasattr(torch.version, "hip") and torch.version.hip is not None and torch.utils.cpp_extension.ROCM_HOME is not None
         )
-        gpu_flags = self.get_gpu_flags(is_rocm, verbose) if not cpu_only else []
+        gpu_flags = self.get_gpu_flags(is_rocm, verbose) if is_gpu_available() and not cpu_only else []
         extension = self.load_extension(extname, srcfiles, cpu_flags, gpu_flags, exec_only, cpu_only, verbose)
         if isinstance(extension, ModuleType):
             self.extension, self.exec_path = extension, None

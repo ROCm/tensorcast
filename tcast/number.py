@@ -2,14 +2,15 @@
 # tcast/number.py: number format specification
 
 from dataclasses import dataclass
+import math
 import re
 from typing import Literal
 
 import torch
 
-from .utils import is_float8_available, is_float8_fnuz_available
+from .utils import is_float8_available, is_float8_fnuz_available, next_power_of_2
 
-InfNan = Literal["ieee", "fn", "fnuz"]
+InfNan = Literal["ieee", "fn", "fnuz", "inuz"]
 
 MX2NUMSPEC = dict(
     mxfp8e5="e5m2",
@@ -51,13 +52,24 @@ class NumberSpec:
     minint: int = None
     torch_dtype: torch.dtype = None
 
+    codebook: list[list[float]] = None
+    codebook_name: str = None
+    midpoints: list[list[float]] = None
+    mapnames: list[str] = None
+    index_bits: int = None
+    meta_bits: int = None
+    _number_line: list[float] = None
+    _implicit: bool = False
+
     def __init__(self, code: str | torch.dtype):
         self._decode(code)
         self._check()
 
     @property
-    def name(self) -> str:
-        """Returns the name.  May be overloaded in a subclass."""
+    def name(self):
+        """NumberSpec name or both codebook name and number name."""
+        if self.is_codebook:
+            return f"{self.codebook_name}_{self._name}"
         return self._name
 
     @property
@@ -75,17 +87,141 @@ class NumberSpec:
         """Returns smallest_normal, as in torch.finfo."""
         return self.smallest_normal
 
+    @property
+    def number_line(self) -> list[float] | None:
+        return self.get_number_line()
+
+    @property
+    def is_codebook(self) -> bool:
+        return self.codebook is not None
+
+    @property
+    def is_implicit(self) -> bool:
+        return self.is_codebook and self._implicit
+
+    @property
+    def num_mappings(self) -> int:
+        return 2**self.meta_bits if self.is_codebook else 0
+
+    @property
+    def current_mappings(self) -> int:
+        return len(self.codebook) if self.is_codebook else 0
+
+    @property
+    def num_values(self) -> int:
+        return 2**self.index_bits if self.is_codebook else 0
+
+    @property
+    def max_codebook(self) -> float:
+        if self.is_codebook:
+            return max([mapping[-1] for mapping in self.codebook])
+        return self.max
+
     def get_number_line(self) -> list[float]:
         """All possible values for this number specification."""
-        if self.bits > 8:
-            raise ValueError(f"NumberSpec: too many number line values for {self.bits} bits")
-        if not (self.is_float or self.ebits == 1):
-            raise ValueError("NumberSpec: number line must be for float or float-like numbers.")
-        # get the non-negative numbers then mirror for negatives, giving all 2^bits values, including 2 zeros
-        line = [i * self.smallest_subnormal for i in range(2**self.mbits)]  # subnormals
-        for e in range(self.emax - self.emin + 1):
-            line += [(self.smallest_normal + i * self.smallest_subnormal) * 2 ** e for i in range(2**self.mbits)]
-        return [-v for v in reversed(line)] + line
+        if not self._number_line:
+            if self.bits > 8:
+                raise ValueError(f"NumberSpec: too many number line values for {self.bits} bits")
+            if not (self.is_float or self.ebits == 1):
+                raise ValueError("NumberSpec: number line must be for float or float-like numbers.")
+            # get the non-negative numbers then mirror for negatives, giving all 2^bits values, including 2 zeros
+            line = [i * self.smallest_subnormal for i in range(2**self.mbits)]  # subnormals
+            for e in range(self.emax - self.emin + 1):
+                line += [(self.smallest_normal + i * self.smallest_subnormal) * 2**e for i in range(2**self.mbits)]
+            if self.infnan in ("fn", "inuz"):
+                line = [0.0] + line[:-1]
+            self._number_line = [-v for v in reversed(line)] + line
+        return self._number_line
+
+    def add_mapping(self, mapping: list[float], mapname: str):
+        """Add a new codebook."""
+        if not self.is_codebook:
+            raise RuntimeError("NumberSpec.add_mapping called for non-codebook number spec.")
+        if self.current_mappings == self.num_mappings:
+            raise RuntimeError(f"NumberSpec.add_mapping exceeds number of mappings specified ({self.num_mappings}).")
+        for v in mapping:
+            if v not in self.number_line:
+                raise ValueError(f"NumberSpec.add_mapping: mapping value {v} is not representable in {self.name}")
+        self.codebook.append(mapping)
+        self.midpoints.append([(mapping[i] + mapping[i + 1]) / 2.0 for i in range(len(mapping) - 1)])
+        self.mapnames.append(mapname)
+
+    def get_mapping(
+        self,
+        index: int | torch.Tensor = None,
+        pos_only: bool = False,
+        torch_dtype: torch.dtype = torch.float32,
+        device: torch.device = "cuda",
+    ) -> torch.Tensor:
+        """Return one or all of the codebooks as a tensor."""
+        if not self.is_codebook:
+            raise RuntimeError("NumberSpec.get_mapping called for non-codebook number spec.")
+        if isinstance(index, int):
+            if index >= len(self.codebook):
+                raise ValueError(f"codebook: getting mapping {index} when there are only {len(self.codebook)}.")
+            vals = [i for i in self.codebook[index] if i > 0.0] if pos_only else self.codebook[index]
+            return torch.tensor(vals, dtype=torch_dtype, device=device)
+        vals = [[i[j] for j in range(len(i)) if i[j] > 0.0] for i in self.codebook] if pos_only else self.codebook
+        vals = torch.tensor(vals, dtype=torch_dtype, device=device)
+        if index is None:
+            return vals
+        maxidx = index.max().item()
+        if maxidx >= len(self.codebook):
+            raise ValueError(f"codebook: getting mapping {maxidx} when there are only {len(self.codebook)}.")
+        vtensor = torch.zeros(index.numel(), vals.shape[1], dtype=torch_dtype, device=device)
+        for i in range(len(self.codebook)):
+            vtensor[index == i] = vals[i]
+        return vtensor
+
+    def get_midpoints(
+        self,
+        index: int | torch.Tensor = None,
+        pos_only: bool = False,
+        torch_dtype: torch.dtype = torch.float32,
+        device: torch.device = "cuda",
+    ) -> torch.Tensor:
+        """Return one or all of the midpoint vectors as a tensor."""
+        if not self.is_codebook:
+            raise RuntimeError("NumberSpec.get_midpoints called for non-codebook number spec.")
+        if isinstance(index, int):
+            if index >= len(self.midpoints):
+                raise ValueError(f"codebook: getting mapping {index} when there are only {len(self.midpoints)}.")
+            vals = [i for i in self.midpoints[index] if i > 0.0] if pos_only else self.midpoints[index]
+            return torch.tensor(vals, dtype=torch_dtype, device=device)
+        vals = [[i[j] for j in range(len(i)) if i[j] > 0.0] for i in self.midpoints] if pos_only else self.midpoints
+        vals = torch.tensor(vals, dtype=torch_dtype, device=device)
+        if index is None:
+            return vals
+        maxidx = index.max().item()
+        if maxidx >= len(self.midpoints):
+            raise ValueError(f"codebook: getting mapping {maxidx} when there are only {len(self.midpoints)}.")
+        vtensor = torch.zeros(index.numel(), vals.shape[1], dtype=torch_dtype, device=device)
+        for i in range(len(self.midpoints)):
+            vtensor[index == i] = vals[i]
+        return vtensor
+
+    def mapname(self, index: int) -> str:
+        if not self.is_codebook:
+            raise RuntimeError("NumberSpec.mapname called for non-codebook number spec.")
+        if index is None or index >= len(self.mapnames):
+            raise ValueError(f"codebook: getting codebook {index} when there are only {len(self.mapnames)}.")
+        return self.mapnames[index]
+
+    def indices_from_vals(self, vals: list[float] | float, line: list[float] = None) -> list[int]:
+        """Reverse search the number line to return indices."""
+        if isinstance(vals, float):
+            vals = [vals]
+        if line is None:
+            line = self.number_line
+        return [line.index(v) for v in vals]
+
+    def vals_from_indices(self, indices: list[int] | int, line: list[float] = None) -> list[float]:
+        """Return values given a list of indices into number line."""
+        if isinstance(indices, int):
+            indices = [indices]
+        if line is None:
+            line = self.number_line
+        return [line[i] for i in indices]
 
     def _decode(self, code: str | torch.dtype) -> None:
         """Sets fields based on input code string."""
@@ -93,13 +229,8 @@ class NumberSpec:
         if isinstance(code, torch.dtype):
             self.torch_dtype = code
             code = str(code)
-        code = code.lower().removeprefix("torch.")
-        if ttype := getattr(torch, code, False):
-            if self.torch_dtype is None and isinstance(ttype, torch.dtype):
-                self.torch_dtype = ttype
-        bias_hack = int(code.startswith("float8") and code.endswith("fnuz"))  # implicit non-standard bias for torch fnuz types
-        name = code = code.removeprefix("float8_")
-        # 2.  Check for implicitly scaled datatypes
+        name = code.lower().removeprefix("torch.")
+        # 2.  Check for common datatype names that are not number formats
         if name in MX2NUMSPEC:
             tilesize = 8 if name.startswith("bfp") else 32
             raise ValueError(
@@ -110,9 +241,53 @@ class NumberSpec:
         elif name in MXUNSUPPORTED:
             raise NotImplementedError(
                 f"\tNumberSpec: code '{name}' is a scaled datatype rather than a number format.\n"
-                f"\tMX types (a/k/a bfp prime) are not yet supported."
+                f"\tMX types (a/k/a bfp/msfp prime) are not yet supported."
             )
-        # 3.  Handle float/bfloat/int/uint style string codes for widths > 8
+        # 3.  Check for instrisic non-standard bias
+        bias_hack = int(name.startswith("float8") and name.endswith("fnuz"))  # implicit non-standard bias for torch fnuz
+        name = name.removeprefix("float8_").removeprefix("float8")
+        # 4.  Handle codebook specs, which are separated from the compute spec by an underscore.
+        if name.startswith("cb") or name.startswith("icb"):
+            if name.count("_") == 1:
+                self.codebook_name, ccode = name.split("_")
+                self._decode(ccode)
+                if m := re.fullmatch(r"(cb|icb)(\d)(\d)(.+)", self.codebook_name):
+                    self._implicit, self.index_bits, self.meta_bits, icode = (
+                        m.group(1) == "icb",
+                        int(m.group(2)),
+                        int(m.group(3)),
+                        m.group(4),
+                    )
+                    self.codebook, self.midpoints, self.mapnames = [], [], []
+                    if self._implicit:
+                        if self.index_bits != 4:
+                            raise NotImplementedError(f"NumberSpec: codebook index bits must be 4, not {self.index_bits}.")
+                        # the optional digits are for p (progressive) and are the initial increment and starting offset
+                        # the initial increment defaults to 0 and the starting offset (from the top) defaults to 0
+                        if matches := list(re.finditer(r"([ipsf])(\d)?(\d)?", icode)):
+                            self._populate_implicit(tuple(m.groups() for m in matches))
+                        else:
+                            raise ValueError(f"NumberSpec: code {name} is not a valid implicit codebook.")
+                    return
+            raise ValueError(f"NumberSpec codebook code {name} is invalid.")
+        # 5.  Handle P3109-style string codes
+        if m := re.fullmatch(r"binary(\d+)(p\d)", name):
+            bits = int(m.group(1))
+            prec = int(m.group(2)[1:]) if m.group(2) else 0
+            if bits not in (8, 16, 32, 64):
+                raise ValueError(f"NumberSpec: code '{name}': binary formats must be 8, 16, 32, or 64 bits.")
+            if bits != 8:
+                if bits == 64:
+                    raise NotImplementedError(f"NumberSpec: code '{name}': 64-bit binary formats are not yet supported.")
+                if prec:
+                    raise ValueError(f"NumberSpec: code '{name}': precision is only supported for 8-bit binary formats.")
+                name = f"e8m{bits - 9}"
+            else:
+                if prec not in range(2, 7):
+                    raise ValueError(f"NumberSpec: code '{name}': precision must be in range [2, 6].")
+                ebits = 8 - prec
+                name = f"e{ebits}m{prec-1}b{2**(ebits-1)}inuz"
+        # 6.  Handle float/bfloat/int/uint style string codes for widths > 8
         if m := re.fullmatch(r"(float|bfloat|int|uint)(\d+)", name):
             prefix, bits = m.group(1), int(m.group(2))
             if prefix == "bfloat":
@@ -128,9 +303,9 @@ class NumberSpec:
                 self.ebits, self.mbits, self.bias, self.signed, self.infnan = 0, bits, None, False, None
             else:
                 self.ebits, self.mbits, self.bias, self.infnan = 1, bits - 2, 1, "fnuz"
-        # 4.  Handle EMB stype string codes
+        # 7.  Handle EMB stype string codes
         if self.mbits is None:
-            if m := re.fullmatch(r"e(\d+)m(\d+)(b\d+)?(fn|fnuz)?", name):
+            if m := re.fullmatch(r"e(\d+)m(\d+)(b\d+)?(fn|fnuz|inuz)?", name):
                 self.ebits, self.mbits, self.bias = int(m.group(1)), int(m.group(2)), m.group(3)
                 self.infnan = m.group(4) or "ieee"
                 self.signed = not (self.infnan == "ieee" and self.mbits == 0)
@@ -139,10 +314,9 @@ class NumberSpec:
                 else:
                     self.bias = int(self.bias[1:])
         if self.ebits is None:
-            raise ValueError(f"NumberSpec: code {code} is not a valid format.")
+            raise ValueError(f"NumberSpec: code {name} is not a valid format.")
         self._name = name
-
-        # 5.  Fill in the remaining fields in the spec from ebits/mbits/signed/infnan
+        # 8.  Fill in the remaining fields in the spec from ebits/mbits/signed/infnan
         self.is_int = self.ebits == 1 and self.bias == 1 and self.signed and self.infnan == "fnuz"
         self.is_float = not self.is_int and self.signed and self.infnan is not None
         self.is_uint = self.bias is None and not self.signed and self.infnan is None
@@ -154,17 +328,60 @@ class NumberSpec:
         if self.is_float or self.is_int:
             self.emax = 2**self.ebits - 1 - self.bias - int(self.infnan == "ieee")
             self.emin = 1 - self.bias
-            self.maxfloat = 2**self.emax * (2.0 - (1 + int(self.infnan == "fn")) * 2 ** (-self.mbits))
+            self.maxfloat = 2**self.emax * (2.0 - (1 + int(self.infnan in ["fn", "inuz"])) * 2 ** (-self.mbits))
             self.midmax = (2 ** (self.emax + 1) - self.maxfloat) / 2.0 + self.maxfloat
+            if self.infnan in ("fn", "inuz"):
+                self.midmax -= (self.midmax - self.maxfloat) / 2.0
             self.eps = 2**-self.mbits
             self.smallest_normal = 2**self.emin
             self.smallest_subnormal = self.smallest_normal * self.eps
-
-        # 6.  See if what we have matches a torch.dtype
+        # 9.  See if what we have matches a torch.dtype
         if self.torch_dtype is None:
             self.torch_dtype = self._find_torch_dtype()
 
+    def _populate_implicit(self, specs: list[tuple]) -> None:
+        """Populate the fields of the implicit spec."""
+        shifts = 2 ** (self.meta_bits - int(math.log2(next_power_of_2(len(specs)))))
+        shift_incr = 2 if self.meta_bits > 1 and shifts < 2**self.mbits else 1
+        num_positive = 2 ** (self.index_bits - 1) - 1
+        for spec in specs:
+            name, value, offset = spec
+            value = int(value) + 1 if isinstance(value, str) else 1
+            offset = int(offset) if isinstance(offset, str) else 0
+            indices = []
+            nstr = name
+            # build the number line for this spec based on indices of negative values (-maxval is at index 0 of the number line)
+            if name in "fi":
+                offset = int(spec[1]) if isinstance(spec[1], str) else 0
+                nspec = NumberSpec("e2m1fnuz" if name == "f" else "e1m2b1fnuz")
+                # scale the fp4 or int4 numbers up to the compute spec number line
+                scaled = [i * 2 ** (self.emax - nspec.emax) for i in nspec.number_line if i < 0.0]
+                assert len(scaled) == num_positive
+                indices = self.indices_from_vals(scaled)
+                # shift to the top of the number line (negative values)
+                indices = [i - indices[0] + offset for i in indices]
+            elif name in "ps":
+                incr, idx = value, offset
+                nstr = f"{name}{value}"
+                for _ in range(num_positive):
+                    indices.append(idx)
+                    idx += incr
+                    if name == "p":
+                        incr += 1
+            for s in range(shifts):
+                shift = s * shift_incr
+                vals = self.vals_from_indices([i + shift for i in indices if self.number_line[i + shift] < 0.0])
+                while len(vals) < num_positive + 1:
+                    vals.append(-0.0)
+                self.add_mapping(vals + [-v for v in reversed(vals)], f"{nstr}_{shift+offset}")
+
     def _find_torch_dtype(self) -> torch.dtype | None:
+        if self.is_uint:
+            return torch.uint8 if self.bits == 8 else torch.uint16 if self.bits == 16 else torch.uint32
+        if self.is_int:
+            return torch.int8 if self.bits == 8 else torch.int16 if self.bits == 16 else torch.int32
+        if self.is_exponent and self.bits == 8:
+            return torch.uint8
         if self.bits == 32 and self.ebits == 8 and self.mbits == 23 and self.bias == 127 and self.infnan == "ieee":
             return torch.float32
         if self.bits == 16 and self.ebits == 5 and self.mbits == 10 and self.bias == 15 and self.infnan == "ieee":
