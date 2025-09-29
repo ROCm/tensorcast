@@ -8,6 +8,7 @@ import tcast
 from tqdm import tqdm
 import time
 import timm
+from utils.injector import TC_TorchInjector
 
 def set_seed(seed):
     np.random.seed(seed)
@@ -114,7 +115,7 @@ if __name__ == '__main__':
     # Using the custom layers in the model
     bfp16ebs8_t = tcast.DataType("int8", "e8m0_t8", "bfp16ebs8_t")
     tcast_specs = {'weight_dtype': bfp16ebs8_t, 'input_dtype': bfp16ebs8_t, 'output_dtype': bfp16ebs8_t}
-    tcast.TorchInjector(tcast_specs)
+    TC_TorchInjector(tcast_specs)
 
     model_custom = get_model(args)
     test_accuracy(model_custom, test_loader, args.device, (1, 5))

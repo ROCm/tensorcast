@@ -1,6 +1,6 @@
 import tcast
 import torch
-import copy
+from utils.injector import TC_MixedPrecisionInjector
 
 class NonTcastModel(torch.nn.Module):
     def __init__(self):
@@ -19,7 +19,7 @@ class NonTcastModel(torch.nn.Module):
 
 if __name__ == "__main__":
 
-    model = NonTcastModel()
+    model = NonTcastModel().eval()
     input_fp32 = torch.randn(3, 8, 18)
     output_fp32 = model(input_fp32)
 
@@ -27,7 +27,7 @@ if __name__ == "__main__":
     bfp16ebs16_t = tcast.DataType("int8", "e8m0_t16", "bfp16ebs16_t")
     tcast_specs = {'fc1': {'weight_dtype': bfp16ebs8_t}, 'fc2': {'weight_dtype': bfp16ebs16_t}, 'conv': {'weight_dtype': bfp16ebs8_t}}
 
-    model_mixed = tcast.MixedPrecisionInjector(model, tcast_specs)
+    model_mixed = TC_MixedPrecisionInjector(model, tcast_specs)
     output_bfp16 = model_mixed(input_fp32)
     
     print("l2 norm error: ", torch.norm(output_fp32 - output_bfp16).item())
