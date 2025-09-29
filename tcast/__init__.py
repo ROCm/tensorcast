@@ -22,7 +22,12 @@ from .utils import (
     printoptions,
 )
 
-__version__ = Path(__file__).with_name("version.txt").open().read().strip()
+try:
+    from importlib.metadata import version
+    __version__ = version("tcast")
+except ImportError:
+    __version__ = "unknown"
+
 
 
 def initialize(

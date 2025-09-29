@@ -20,6 +20,21 @@ Contributors:
 - Eric Dellinger [@ericd](mailto:eric.dellinger@amd.com)
 - Alireza Khodamoradi [@alirezak](mailto:alireza.khodamoradi@amd.com)
 
+## Installation
+
+### Requirements
+
+* ROCm toolkit
+* PyTorch
+* `pip install packaging setuptools`
+
+To install `tcast` module, one can build from source:
+
+```bash
+git clone https://github.com/ROCm/tensorcast && cd tensorcast
+pip install -e .
+```
+
 ## Structure
 
 The primary data structures are defined in the classes [NumberSpec](#numberspec), [ScaleSpec](#scalespec), and [DataType](#datatype).
