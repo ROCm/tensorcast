@@ -310,3 +310,4 @@ The feature set planned for version 2 is:
 - lookup table number specs
 - MSFP MX9/MX6/MX4 datatype support
 - *hierarchical scaling (tensor + tile + subtile + individual exponents)*
+
