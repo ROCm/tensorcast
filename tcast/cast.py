@@ -163,6 +163,10 @@ class Cast:
                     scale = scale.unsqueeze(-1) - offset
                 scale = (scale - dtype.sspec.scale.bias).exp2()
             x /= scale  # scale x into range of the target dtype
+            if torch.isnan(x).any() and dtype.name == "nvfp4e2":
+                # set nan to inf
+                _dt = x.dtype
+                x = torch.nan_to_num(x, nan=float('inf')).to(_dt)
             valexp = (cls.safe_frexp(x) - 1).clamp_min(dtype.nspec.emin)  # get the independent exponents, clipped to emin
             rscale = (dtype.nspec.mbits - valexp).exp2()
             x = cls._round(x * rscale).div(rscale).clamp(-dtype.nspec.maxfloat, dtype.nspec.maxfloat) * scale
