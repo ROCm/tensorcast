@@ -13,6 +13,6 @@ def test_bfp(datatype, roundmode, block_size):
     p2 = "e8m0_t"+block_size
     tcast_dt = tcast.datatype(p1, p2)
     tensor_bfp = tensor_to_bfp(tensor, 1, tcast_dt, roundmode)
-    tensor_tcast = tcast.cast(tensor, dtype=tcast_dt, roundmode=roundmode)
+    tensor_tcast = tcast.vcast(tensor, dtype=tcast_dt, roundmode=roundmode)
     compare_2(tensor_bfp, tensor_tcast)
 
